@@ -23,8 +23,12 @@
 - Keep timer UI polling on an always-active ticker, not on the visible timer frame itself. A hidden WoW frame may stop receiving `OnUpdate`, preventing the timer window from opening itself.
 - Timer UI positioning and resizing must be direct mouse interactions on the visible frame; slash commands may remain only as fallback or recovery controls.
 - Treat non-boss summon spells during a single active boss-frame encounter as possible encounter mechanics owned by that boss, while preserving the original add source in learned data and timer display. Skip association when ownership is ambiguous, especially multi-boss pulls.
+- Keep the learning architecture phase-aware: occurrence lifecycle dedupe, encounter grouping, phase segmentation, rule learning, relevance scoring, model persistence, and prediction should remain separate modules.
+- The addon is unreleased; schema changes may reset old alpha learned data when that is cleaner than preserving contaminated models.
 - During live addon iteration, `/reload` can leave the running client with the old `.toc` file list. If a newly added file is missing, warn the player in chat to restart the client and disable only the affected feature for that session.
 - Before reporting completion for code changes, at minimum run `luac -p Core/*.lua Capture/*.lua Learning/*.lua Runtime/*.lua UI/*.lua Init.lua` when Lua syntax tools are available.
+- For learning or prediction changes, also run `lua tests/replay_scenarios.lua` when local Lua is available.
+- For replay adapter or broad encounter-model changes, also run `lua tests/cpp_module_replay.lua`; use `lua tests/cpp_module_replay.lua <path/to/boss.cpp>` for focused AzerothCore boss-script coverage.
 
 # Project Overview
 
@@ -40,11 +44,24 @@ Planned long-term responsibilities:
 
 The current repository state is an alpha build. Runtime tracking, multi-boss-context learning, timer display, and debug persistence exist; full configuration UI and audio countdowns do not.
 
+Current architecture:
+
+1. Capture records combat-log and unit evidence.
+2. OccurrenceBuilder reduces combat-log lifecycles to ability activations.
+3. EncounterModel groups active boss actors and councils.
+4. PhaseSegmenter creates HP/gap-based segments.
+5. RuleLearner maintains competing prediction rules per ability.
+6. RelevanceScorer suppresses routine noise.
+7. ModelStore persists phase-aware encounter models.
+8. PredictionEngine builds UI timer rows.
+
 # Documentation Index
 
 - `README.md`: current status, addon goal, and development boundaries.
 - `docs/design-notes.md`: initial architecture and brainstorming notes for the future implementation.
 - `docs/test-runbook.md`: manual alpha testing workflow and slash commands.
+- `tests/replay_scenarios.lua`: headless Lua replay tests for core learning and prediction scenarios.
+- `tests/cpp_module_replay.lua`: AzerothCore C++ boss-script adapter that simulates common scheduler, HP-gate, repeat, and summon patterns against the addon replay harness.
 
 # Glossary
 

@@ -47,13 +47,28 @@ The addon records hostile NPC spell evidence broadly because manual dungeon test
 - Timer ability identity is based on the visible spell name when available, while still storing spell ids for diagnostics and icons. Ascension can emit separate technical ids for one displayed mechanic's cast, damage, and aura events.
 - Cast lifecycle events are deduplicated. A cast-start or cast-success followed shortly by success, damage, aura, heal, summon, or miss evidence counts as one occurrence, so cast time is not learned as the boss cooldown.
 - Self-applied aura windows are treated as ability lifecycles. Channeled mechanics such as Whirlwind can emit an activation, a self aura, repeated damage events, and an aura removal; the timer model must learn activation-to-activation intervals rather than channel duration or tick spacing.
-- Startup repair may replay bounded debug pull events to correct old learned intervals that were polluted by cast lifecycle or channel tick events.
+- Alpha learned data is reset on schema changes. The addon is unreleased, so correctness is preferred over preserving contaminated early models.
 - Persistent learned timers require current boss combat evidence before display. A boss merely being targeted during unrelated trash combat must not open timer bars until that boss context has combat-log activity or a matching unit is affecting combat.
 - Known routine abilities such as `Fierce Blow` and `Auto Shot` are hidden immediately. Other common short-interval abilities shared across many bosses are treated as routine noise once enough evidence exists.
 - Timer UI updates must not depend on the visible timer frame's `OnUpdate`; hidden WoW frames can stop polling, so the display uses a separate always-active ticker.
 - Timer UI positioning and resizing should be direct mouse interactions on the visible frame. Slash commands are acceptable only as fallback diagnostics or recovery controls.
 
 This keeps diagnostics useful without letting normal trash packs teach the addon permanent boss timers.
+
+## Current Architecture
+
+BossTracker is organized as a small encounter engine with a simple timer UI:
+
+- `Capture/CombatLog.lua` and `Capture/EncounterState.lua` collect bounded evidence and maintain active hostile-source contexts.
+- `Learning/OccurrenceBuilder.lua` turns noisy combat-log lifecycles into one activation per visible mechanic.
+- `Learning/EncounterModel.lua` maintains the current pull model, qualified boss actors, and council-style encounter components.
+- `Learning/PhaseSegmenter.lua` creates phase segments from HP bucket crossings and long activation gaps.
+- `Learning/RuleLearner.lua` keeps competing rule candidates such as `time_interval`, `first_offset`, `hp_gate`, `phase_start_offset`, `phase_once`, and `encounter_add`.
+- `Learning/RelevanceScorer.lua` adds routine-noise suppression without exposing technical choices to the player.
+- `Core/ModelStore.lua` persists phase-aware encounter models under zones, encounters, actors, and abilities.
+- `Runtime/PredictionEngine.lua` converts active learned rules plus same-pull provisional rules into timer rows for the UI.
+
+The combat-log path stays intentionally light: normalize, filter, store bounded diagnostics, and pass candidate records onward. Heavier grouping, rule selection, and persistence happen in learning modules and at pull end.
 
 ## AzerothCore Pattern Notes
 
@@ -66,3 +81,38 @@ AzerothCore scripts under `/home/two/projects/azerothcore-wotlk` are useful as a
 - Summon and add ownership patterns where the boss triggers adds or add sources perform encounter mechanics.
 
 The addon can only infer these patterns from client-visible evidence, so learned models must prefer stable activation evidence and keep enough diagnostics to correct bad assumptions.
+
+## C++ Pattern Replay Testing
+
+`tests/cpp_module_replay.lua` provides a broad local test bridge from AzerothCore boss modules to the addon. It does not execute C++ or claim AzerothCore is authoritative for Ascension. Instead, it extracts common script patterns and simulates the combat-log shape that BossTracker would need to learn from:
+
+- `ScheduleEvent` and `RescheduleEvent` initial timers.
+- `events.Repeat`, `context.Repeat`, and same-event reschedules.
+- scheduler lambda and `ScheduleTimedEvent` casts.
+- `HealthBelowPct`, `HealthBelowPctDamaged`, and negated `HealthAbovePct` gates.
+- direct spell casts, boss summons, and fallback spell-symbol smoke tests.
+
+This lets a single command exercise the addon against hundreds of realistic boss script shapes before manual dungeon testing. Passing the replay means the addon pipeline can ingest and persist a plausible client-visible version of the script; it does not prove the Ascension encounter uses those exact timings or mechanics.
+
+## Pattern-Informed Adaptation Plan
+
+Further AzerothCore review shows that a general boss timer cannot treat every learned ability as one global cooldown per boss. Common scripts combine timed schedules, HP gates, phases, delayed event groups, add ownership, and conditional fallback casts. BossTracker should adapt toward a small encounter model made from explicit, client-visible state rather than exposing those decisions to the player.
+
+Recommended model layers:
+
+1. Encounter context: one pull can contain multiple boss actors, late-spawned bosses, companion bosses, and encounter-owned adds. The model should keep a stable encounter id, active boss actors, and actor-to-owner associations.
+2. Phase segments: each boss context should be split into inferred segments when HP crosses stable thresholds, the boss becomes untargetable, a major transition spell appears, or a long gap/reset pattern appears. Timers should be learned per segment first, then promoted to boss-wide only if they stay stable across segments.
+3. Ability lifecycle: visible activation is the timer anchor. Cast start, cast success, self aura, damage ticks, summon effects, and aura removal are evidence for one activation unless later observations prove separate mechanics.
+4. Timer rule candidates: every ability should maintain competing hypotheses such as `time_interval`, `first_offset`, `hp_gate`, `phase_start_offset`, `phase_once`, `conditional_retry`, and `encounter_add`. The display should use the highest-confidence user-relevant rule without showing the technical category.
+5. Scheduler behavior: observations should track whether a mechanic pauses, resets, or shifts other timers. Long transition gaps should not poison normal repeat intervals.
+6. Relevance scoring: routine short-interval spells, spam filler casts, passive auras, and add combat abilities need suppression unless they are clearly boss-owned encounter mechanics or manually highlighted later.
+7. Drift handling: stale timers should degrade by rule type. A missed timed interval should lower confidence gradually; repeated phase or HP mismatches should segment or replace the rule; a missing ability after multiple qualified pulls should be hidden automatically.
+
+Concrete examples from the pattern review:
+
+- Warmaster Voone changes ability sets at HP thresholds, so the same boss needs phase-specific timer sets.
+- Mr. Smite uses HP-triggered transitions that delay other events; those transition spells should not become normal cooldowns.
+- Nightbane, Onyxia, Ragnaros, Novos, and Ichoron have untargetable or airborne phases where timers are canceled, paused, or replaced.
+- The Four Horsemen, Twin Emperors, Skarvald/Dalronn, The Seven, and similar councils need multiple simultaneous boss contexts under one encounter.
+- Curator, Putricide, Lich King, Saurfang, Wyrmthalak, and many dungeon bosses summon adds or use triggered spells; encounter ownership must preserve the original source while displaying only useful boss mechanics.
+- Ragnaros and Lich King show conditional fallback casts and event rescheduling; missed or delayed casts are not always patch drift.

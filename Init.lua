@@ -7,8 +7,15 @@ local started = false
 
 local function startModules()
 	local boundary = addon.Core.ErrorBoundary
+	boundary.safeStart("ModelStore", addon.Core.ModelStore)
 	boundary.safeStart("EncounterState", addon.Capture.EncounterState)
+	boundary.safeStart("OccurrenceBuilder", addon.Learning.OccurrenceBuilder)
+	boundary.safeStart("EncounterModel", addon.Learning.EncounterModel)
+	boundary.safeStart("PhaseSegmenter", addon.Learning.PhaseSegmenter)
+	boundary.safeStart("RuleLearner", addon.Learning.RuleLearner)
+	boundary.safeStart("RelevanceScorer", addon.Learning.RelevanceScorer)
 	boundary.safeStart("AbilityLearner", addon.Learning.AbilityLearner)
+	boundary.safeStart("PredictionEngine", addon.Runtime.PredictionEngine)
 	boundary.safeStart("TimerScheduler", addon.Runtime.TimerScheduler)
 	boundary.safeStart("CombatLog", addon.Capture.CombatLog)
 	boundary.safeStart("TimerFrame", addon.UI.TimerFrame)
