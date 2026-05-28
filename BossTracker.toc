@@ -1,0 +1,31 @@
+## Interface: 30300
+## Title: |cff4ec3ffBoss|r |cffe8e8e8Tracker|r
+## Notes: Learns Ascension Bronzebeard boss ability timings and shows compact encounter timers.
+## Version: 0.3.14
+## SavedVariables: BossTrackerDB
+## SavedVariablesPerCharacter: BossTrackerCharDB
+## DefaultState: Enabled
+## LoadOnDemand: 0
+
+Core\Namespace.lua
+Core\Constants.lua
+Core\RingBuffer.lua
+Core\Util.lua
+Core\SavedVariables.lua
+Core\Logger.lua
+Core\ErrorBoundary.lua
+
+Capture\EncounterState.lua
+
+Learning\Relevance.lua
+Learning\EncounterClassifier.lua
+Learning\AbilityLearner.lua
+
+Runtime\TimerScheduler.lua
+
+Capture\CombatLog.lua
+
+UI\TimerFrame.lua
+UI\SlashCommand.lua
+
+Init.lua

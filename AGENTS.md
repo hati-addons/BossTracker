@@ -1,0 +1,55 @@
+# Behaviour
+
+- Communicate with the user in German unless they request another language.
+- Keep addon code, identifiers, comments, saved variable names, UI copy, logs, and project documentation in English.
+- Treat BossTracker as a WotLK 3.3.5a addon for Project Ascension Bronzebeard (`Interface: 30300`).
+- Preserve stock WoW addon compatibility. In `.toc` files, use backslash path separators for addon-local files.
+- Keep hot paths cheap. Future combat-log handlers, target scans, and `OnUpdate` timers must avoid unbounded scans and unnecessary allocation.
+- The addon must make user-facing decisions itself. Do not expose technical learning classifications, spell ids, or algorithm tuning unless explicitly added as advanced diagnostics.
+- Keep alpha diagnostics bounded in SavedVariables. Every debug collection must have a hard cap and must remain useful after a manual dungeon or raid test followed by `/reload`.
+- Treat player combat as a coarse capture window only. Boss learning and timer state must be scoped to per-source boss contexts so long trash combat, late boss pulls, and simultaneous bosses do not collapse into one encounter.
+- Keep capture broader than durable learning. Persist raw context summaries for diagnosis, but promote only qualified finished boss contexts into timer models so repeated trash and adds do not pollute the learned database.
+- Qualify durable boss models at pull end, not when each source context ends. Sequential boss councils and companion bosses need the complete pull context, while repeated trash models need full-run repetition evidence.
+- Treat `boss1..MAX_BOSS_FRAMES` as the strongest available unit signal for encounter identity and HP, but keep combat-log, target, and focus fallbacks because Ascension custom encounters may expose late, partial, or no boss frames.
+- Do not use boss HP as a hard gate for learned timer display. Once a context is qualified as a boss, observed timer estimates may be persisted and shown after wipes or resets; HP is only supporting evidence.
+- Allow provisional timer display from the first usable estimate. Keep confidence low and let later observations refine or suppress the timer instead of hiding all early data.
+- Allow live same-pull provisional timers for repeated casts from qualified active boss contexts, but do not persist those estimates until the normal pull-end learner path qualifies the context.
+- Use canonical timer ability keys based on the visible spell name when available. Ascension/WoW combat logs may emit different technical spell ids for the cast, effect, and aura of one displayed boss mechanic.
+- Deduplicate cast lifecycle events for one ability. A `SPELL_CAST_START` or `SPELL_CAST_SUCCESS` followed shortly by success, damage, aura, heal, summon, or miss evidence is one boss ability occurrence, not the ability cooldown.
+- Treat self-applied aura windows as ability lifecycles. Channeled or aura-driven mechanics can emit ticks and aura removal after the visible activation; those events must not be learned as recast intervals.
+- Use `/home/two/projects/azerothcore-wotlk` as a local pattern reference for common boss script shapes, but never as authoritative Ascension behavior.
+- Do not show learned persistent timers for a target/focus-only boss context until the context has actual boss combat evidence through boss events or a matching unit that is affecting combat.
+- Suppress known routine abilities such as `Fierce Blow` and `Auto Shot` immediately, even in a new zone with only one learned boss.
+- Keep timer UI polling on an always-active ticker, not on the visible timer frame itself. A hidden WoW frame may stop receiving `OnUpdate`, preventing the timer window from opening itself.
+- Timer UI positioning and resizing must be direct mouse interactions on the visible frame; slash commands may remain only as fallback or recovery controls.
+- Treat non-boss summon spells during a single active boss-frame encounter as possible encounter mechanics owned by that boss, while preserving the original add source in learned data and timer display. Skip association when ownership is ambiguous, especially multi-boss pulls.
+- During live addon iteration, `/reload` can leave the running client with the old `.toc` file list. If a newly added file is missing, warn the player in chat to restart the client and disable only the affected feature for that session.
+- Before reporting completion for code changes, at minimum run `luac -p Core/*.lua Capture/*.lua Learning/*.lua Runtime/*.lua UI/*.lua Init.lua` when Lua syntax tools are available.
+
+# Project Overview
+
+BossTracker is a planned raid and dungeon boss ability timer addon for Project Ascension Bronzebeard. It should eventually learn relevant boss abilities automatically from observed play, classify their trigger style, and display the next expected abilities in a clean chronological timer list.
+
+Planned long-term responsibilities:
+
+1. Observe encounter events and combat-log evidence.
+2. Learn relevant boss abilities while filtering routine noise such as melee swings.
+3. Maintain learned timing models across patches and correct stale assumptions automatically.
+4. Render a minimal timer list with bars, remaining time, and priority highlighting.
+5. Provide a searchable hierarchical configuration by instance, boss, and ability.
+
+The current repository state is an alpha build. Runtime tracking, multi-boss-context learning, timer display, and debug persistence exist; full configuration UI and audio countdowns do not.
+
+# Documentation Index
+
+- `README.md`: current status, addon goal, and development boundaries.
+- `docs/design-notes.md`: initial architecture and brainstorming notes for the future implementation.
+- `docs/test-runbook.md`: manual alpha testing workflow and slash commands.
+
+# Glossary
+
+- Boss ability: A relevant encounter action the addon may eventually track.
+- Learned ability: An observed ability with enough evidence to create or update a prediction model.
+- Timer model: The future prediction rule for an ability, such as time-based, health-based, or one-time.
+- Relevance filter: Logic that separates important encounter mechanics from routine or noisy combat events.
+- Drift correction: Future logic that notices stale learned data after patches or encounter changes and adapts it.
