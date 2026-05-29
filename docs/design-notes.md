@@ -49,7 +49,11 @@ The addon records hostile NPC spell evidence broadly because manual dungeon test
 - Self-applied aura windows are treated as ability lifecycles. Channeled mechanics such as Whirlwind can emit an activation, a self aura, repeated damage events, and an aura removal; the timer model must learn activation-to-activation intervals rather than channel duration or tick spacing.
 - Alpha learned data is reset on schema changes. The addon is unreleased, so correctness is preferred over preserving contaminated early models.
 - Persistent learned timers require current boss combat evidence before display. A boss merely being targeted during unrelated trash combat must not open timer bars until that boss context has combat-log activity or a matching unit is affecting combat.
-- Known routine abilities such as `Fierce Blow` and `Auto Shot` are hidden immediately. Other common short-interval abilities shared across many bosses are treated as routine noise once enough evidence exists.
+- Repeated abilities with an observed interval below 10 seconds are hidden from the timer display. The evidence is retained for diagnostics, but the spell is treated as standard repertoire rather than a useful timer bar.
+- Pure aura-only repeats at nearly the same HP are hidden as likely passive, consequence, or phase-state noise unless future relevance logic has stronger evidence that they are player-actionable mechanics.
+- Routine suppression applies to live provisional timers as well as persisted models, so repeated filler casts do not flash in the timer frame during the first observed boss pull.
+- A live time timer is not created from only one interval sample when the two activations occur at nearly the same HP. That pattern is treated as likely HP-gated or phase-gated until later evidence proves a real cooldown.
+- Extremely short high-HP boss-frame partials stay diagnostic-only when they end without death or low-HP evidence. This protects pre-combat or edge-of-combat casts from becoming durable learned pulls while still allowing real wipes and confirmed kills to update boss models.
 - Timer UI updates must not depend on the visible timer frame's `OnUpdate`; hidden WoW frames can stop polling, so the display uses a separate always-active ticker.
 - Timer UI positioning and resizing should be direct mouse interactions on the visible frame. Slash commands are acceptable only as fallback diagnostics or recovery controls.
 

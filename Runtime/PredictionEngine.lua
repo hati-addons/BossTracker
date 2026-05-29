@@ -188,12 +188,38 @@ local function addTimer(ability, pullAbility, context, nextAt, mode, scheduledKe
 	}
 end
 
+local function looksLikeSingleSampleHpGate(pullAbility)
+	if not pullAbility then
+		return false
+	end
+	if (pullAbility.intervalSamples or 0) > 1 or (pullAbility.activationCount or 0) > 2 then
+		return false
+	end
+	local minHpPct = tonumber(pullAbility.minHpPct)
+	local maxHpPct = tonumber(pullAbility.maxHpPct)
+	return minHpPct
+		and maxHpPct
+		and (maxHpPct - minHpPct) <= C.HP_GATE_SPREAD_PCT
+end
+
 local function liveTimeAbility(pullAbility)
 	if not pullAbility
 		or not pullAbility.intervalSamples
 		or pullAbility.intervalSamples < 1
 		or not pullAbility.minInterval
 		or pullAbility.minInterval < C.MIN_INTERVAL_SECONDS then
+		return nil
+	end
+	if pullAbility.minInterval < C.MIN_TIMER_DISPLAY_INTERVAL_SECONDS then
+		return nil
+	end
+	local relevanceScorer = addon.Learning and addon.Learning.RelevanceScorer or nil
+	if relevanceScorer
+		and relevanceScorer.routineReasonForAbility
+		and relevanceScorer.routineReasonForAbility(pullAbility) then
+		return nil
+	end
+	if looksLikeSingleSampleHpGate(pullAbility) then
 		return nil
 	end
 

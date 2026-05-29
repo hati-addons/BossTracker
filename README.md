@@ -29,7 +29,7 @@ Implemented now:
 - HP phase transitions and repeated one-per-phase transition spells are kept out of normal cooldown models when the evidence supports a phase rule.
 - Displayed boss mechanics are merged by visible spell name when Ascension emits separate technical spell ids for cast, effect, and aura events.
 - Learned timers stay hidden for target-only boss contexts until that boss has current combat evidence.
-- Automatic suppression for common routine abilities that behave like basic attacks across many bosses.
+- Automatic suppression for sub-10s repeated abilities and aura-only same-HP repeat noise.
 - A compact timer frame for learned time-based, one-time, and HP-linked candidates.
 - Timer UI polling runs from an always-active ticker, so a hidden timer frame can open itself when predictions appear.
 - The visible timer frame can be moved by dragging it and resized from the lower-right corner; slash commands are only fallback controls.

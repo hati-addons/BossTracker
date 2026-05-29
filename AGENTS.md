@@ -19,7 +19,11 @@
 - Treat self-applied aura windows as ability lifecycles. Channeled or aura-driven mechanics can emit ticks and aura removal after the visible activation; those events must not be learned as recast intervals.
 - Use `/home/two/projects/azerothcore-wotlk` as a local pattern reference for common boss script shapes, but never as authoritative Ascension behavior.
 - Do not show learned persistent timers for a target/focus-only boss context until the context has actual boss combat evidence through boss events or a matching unit that is affecting combat.
-- Suppress known routine abilities such as `Fierce Blow` and `Auto Shot` immediately, even in a new zone with only one learned boss.
+- Suppress repeated abilities with an observed interval below 10 seconds before display. Keep their diagnostic evidence, but treat them as standard repertoire rather than useful timer bars.
+- Suppress pure aura-only repeats at nearly the same HP as likely passive, consequence, or phase-state noise unless later architecture adds a stronger relevance signal.
+- Apply routine suppression before live provisional timer display as well as after pull-end model promotion; otherwise repeated filler casts can appear during the first live boss pull.
+- Do not create a live time timer from only one interval sample when the two activations occur at nearly the same HP. That evidence is more likely HP-gated or phase-gated than a real cooldown.
+- Keep very short, high-HP boss-frame partials diagnostic-only when they end without death or low-HP evidence. A bossframe alone is strong identity evidence, but one pre-combat cast should not become a durable pull.
 - Keep timer UI polling on an always-active ticker, not on the visible timer frame itself. A hidden WoW frame may stop receiving `OnUpdate`, preventing the timer window from opening itself.
 - Timer UI positioning and resizing must be direct mouse interactions on the visible frame; slash commands may remain only as fallback or recovery controls.
 - Treat non-boss summon spells during a single active boss-frame encounter as possible encounter mechanics owned by that boss, while preserving the original add source in learned data and timer display. Skip association when ownership is ambiguous, especially multi-boss pulls.

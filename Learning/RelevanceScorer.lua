@@ -4,20 +4,72 @@
 -- ability clearly encounter-relevant.
 
 local addon = _G.BossTracker
+local C = addon.Core.Constants
 
 local RelevanceScorer = {}
 addon.Learning.RelevanceScorer = RelevanceScorer
 
-local function lowerName(spellName)
-	return string.lower(tostring(spellName or ""))
+local function frequentShortIntervalReason(ability)
+	if type(ability) ~= "table" or ability.encounterAssociated then
+		return nil
+	end
+
+	local activationCount = tonumber(ability.activationCount) or 0
+	local intervalSamples = tonumber(ability.intervalSamples) or 0
+	local minInterval = tonumber(ability.minInterval)
+	if not minInterval then
+		return nil
+	end
+
+	if activationCount >= 2 and intervalSamples >= 1 and minInterval < C.MIN_TIMER_DISPLAY_INTERVAL_SECONDS then
+		return "short_interval_below_display_floor"
+	end
+
+	return nil
 end
 
-local function knownRoutineReason(spellName)
-	local name = lowerName(spellName)
-	if name == "fierce blow" or name == "auto shot" then
-		return "known_routine_ability"
+local function isAuraOnlyAbility(ability)
+	local events = ability and ability.events
+	if type(events) ~= "table" then
+		return false
+	end
+
+	local sawAura = false
+	for eventType in pairs(events) do
+		if eventType == "SPELL_AURA_APPLIED"
+			or eventType == "SPELL_AURA_REFRESH"
+			or eventType == "SPELL_AURA_REMOVED" then
+			sawAura = true
+		else
+			return false
+		end
+	end
+	return sawAura
+end
+
+local function auraOnlySameHpRepeatReason(ability)
+	if type(ability) ~= "table"
+		or ability.encounterAssociated
+		or not isAuraOnlyAbility(ability)
+		or (tonumber(ability.activationCount) or 0) < 2
+		or (tonumber(ability.intervalSamples) or 0) < 1 then
+		return nil
+	end
+
+	local minHpPct = tonumber(ability.minHpPct)
+	local maxHpPct = tonumber(ability.maxHpPct)
+	if minHpPct and maxHpPct and maxHpPct - minHpPct <= C.HP_GATE_SPREAD_PCT then
+		return "aura_only_same_hp_repeat"
 	end
 	return nil
+end
+
+function RelevanceScorer.routineReasonForAbility(ability)
+	if type(ability) ~= "table" then
+		return nil
+	end
+	return frequentShortIntervalReason(ability)
+		or auraOnlySameHpRepeatReason(ability)
 end
 
 function RelevanceScorer.applyRoutineCandidate(ability, candidate)
@@ -25,38 +77,16 @@ function RelevanceScorer.applyRoutineCandidate(ability, candidate)
 		return
 	end
 
-	local knownReason = knownRoutineReason(ability.spellName)
-	if knownReason then
+	local routineReason = RelevanceScorer.routineReasonForAbility(ability)
+	if routineReason then
 		candidate(ability, "routine_noise", 1.0, {
-			reason = knownReason,
+			reason = routineReason,
 		})
 		return
 	end
 
 	if ability.encounterAssociated then
 		return
-	end
-
-	local sharedCount = tonumber(ability.sharedAbilityCount) or 0
-	if sharedCount >= 4
-		and ability.minInterval
-		and ability.minInterval <= 8
-		and ability.intervalSamples
-		and ability.intervalSamples >= 1 then
-		candidate(ability, "routine_noise", 0.88, {
-			reason = "shared_short_interval",
-			sharedAbilityCount = sharedCount,
-		})
-		return
-	end
-
-	if (ability.activationCount or 0) >= 8
-		and ability.minInterval
-		and ability.minInterval <= 5
-		and (ability.hpSamples or 0) <= 1 then
-		candidate(ability, "routine_noise", 0.66, {
-			reason = "frequent_short_interval",
-		})
 	end
 end
 
