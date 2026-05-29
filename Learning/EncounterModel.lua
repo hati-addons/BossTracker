@@ -105,7 +105,7 @@ local function buildPullDecisionStats(pullState, pull)
 	return stats
 end
 
-local function decisionModelStats(bossState, pullDecisionStats)
+local function decisionModelStats(pullState, bossState, pullDecisionStats)
 	local modelStats = bossState.modelStats or {}
 	return {
 		bossKey = bossState.bossKey,
@@ -113,6 +113,7 @@ local function decisionModelStats(bossState, pullDecisionStats)
 		uniqueActorCount = modelStats.uniqueActorCount or 1,
 		pullContextCount = pullDecisionStats and pullDecisionStats.contextCount or 0,
 		pullWorldbossCount = pullDecisionStats and pullDecisionStats.worldbossCount or 0,
+		zone = pullState and pullState.zone,
 	}
 end
 
@@ -288,7 +289,7 @@ function EncounterModel.scorePull(pullState, pull, reason)
 		local context = pull and pull.bossContexts and pull.bossContexts[actorKey] or nil
 		EncounterModel.finishBossState(bossState, context, reason)
 		if bossState.eventCount and bossState.eventCount > 0 and classifier and classifier.scoreContext then
-			local decision = classifier.scoreContext(context, bossState, decisionModelStats(bossState, pullDecisionStats))
+			local decision = classifier.scoreContext(context, bossState, decisionModelStats(pullState, bossState, pullDecisionStats))
 			decisions[actorKey] = decision
 			if decision.isBoss then
 				qualifiedEntries[#qualifiedEntries + 1] = {

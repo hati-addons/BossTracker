@@ -20,9 +20,11 @@
 - Treat self-applied aura windows as ability lifecycles. Channeled or aura-driven mechanics can emit ticks and aura removal after the visible activation; those events must not be learned as recast intervals.
 - Use `/home/two/projects/azerothcore-wotlk` as a local pattern reference for common boss script shapes, but never as authoritative Ascension behavior.
 - Do not show learned persistent timers for a target/focus-only boss context until the context has actual boss combat evidence through boss events or a matching unit that is affecting combat.
+- In raid instances, do not promote or display fallback elite contexts without a boss-frame, worldboss, or council signal. Raid trash can look boss-like by duration, low HP, and event volume.
 - Suppress repeated abilities with an observed interval below 10 seconds before display. Keep their diagnostic evidence, but treat them as standard repertoire rather than useful timer bars.
 - Suppress pure aura-only repeats at nearly the same HP as likely passive, consequence, or phase-state noise unless later architecture adds a stronger relevance signal.
 - Apply routine suppression before live provisional timer display as well as after pull-end model promotion; otherwise repeated filler casts can appear during the first live boss pull.
+- Use learned routine evidence across confirmed bosses to suppress live provisional timers for shared filler spells. A spell can look long on its first two casts in a new pull and only reveal its short routine cadence later.
 - Do not create a live time timer from only one interval sample when the two activations occur at nearly the same HP. That evidence is more likely HP-gated or phase-gated than a real cooldown.
 - Do not promote stable HP samples to an `hp_gate` rule before at least three HP samples exist. With one or two pulls, prefer time/phase timing over showing HP percentages.
 - Keep very short, high-HP boss-frame partials diagnostic-only when they end without death or low-HP evidence. A bossframe alone is strong identity evidence, but one pre-combat cast should not become a durable pull.
@@ -35,6 +37,7 @@
 - Keep the learning architecture phase-aware: occurrence lifecycle dedupe, encounter grouping, phase segmentation, rule learning, relevance scoring, model persistence, and prediction should remain separate modules.
 - The addon is unreleased; schema changes may reset old alpha learned data when that is cleaner than preserving contaminated models.
 - During live addon iteration, `/reload` can leave the running client with the old `.toc` file list. If a newly added file is missing, warn the player in chat to restart the client and disable only the affected feature for that session.
+- Combat-log parser tests must exercise `Capture.CombatLog.handleEvent`, not only helper normalization or direct learner records. A parser regression once learned subevent names such as `SPELL_HEAL` as ability names because tests bypassed the real event handler.
 - Before reporting completion for code changes, at minimum run `luac -p Core/*.lua Capture/*.lua Learning/*.lua Runtime/*.lua UI/*.lua Init.lua` when Lua syntax tools are available.
 - For learning or prediction changes, also run `lua tests/replay_scenarios.lua` when local Lua is available.
 - For replay adapter or broad encounter-model changes, also run `lua tests/cpp_module_replay.lua`; use `lua tests/cpp_module_replay.lua <path/to/boss.cpp>` for focused AzerothCore boss-script coverage.
@@ -69,7 +72,7 @@ Current architecture:
 # Documentation Index
 
 - `README.md`: current status, addon goal, and development boundaries.
-- `docs/design-notes.md`: initial architecture and brainstorming notes for the future implementation.
+- `docs/design-notes.md`: architecture notes, learning boundaries, pattern references, and observed Ascension encounter behavior.
 - `docs/test-runbook.md`: manual alpha testing workflow and slash commands.
 - `tests/replay_scenarios.lua`: headless Lua replay tests for core learning and prediction scenarios.
 - `tests/cpp_module_replay.lua`: AzerothCore C++ boss-script adapter that simulates common scheduler, HP-gate, repeat, and summon patterns against the addon replay harness.

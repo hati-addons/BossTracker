@@ -41,6 +41,12 @@ local function isBossSignalContext(context)
 	)
 end
 
+local function isRaidPull(pull)
+	local zone = pull and pull.zone
+	return type(zone) == "table"
+		and (zone.instanceType == "raid" or (tonumber(zone.maxPlayers) or 0) >= 10)
+end
+
 local function countActiveBossSignalContexts(contexts)
 	local count = 0
 	for _, context in pairs(contexts or {}) do
@@ -230,6 +236,11 @@ local function liveTimeAbility(pullAbility)
 	if relevanceScorer
 		and relevanceScorer.routineReasonForAbility
 		and relevanceScorer.routineReasonForAbility(pullAbility) then
+		return nil
+	end
+	if relevanceScorer
+		and relevanceScorer.isKnownRoutineSpell
+		and relevanceScorer.isKnownRoutineSpell(pullAbility.spellKey) then
 		return nil
 	end
 	if looksLikeSingleSampleHpGate(pullAbility) then
@@ -422,7 +433,8 @@ local function buildPredictions()
 	for actorKey, context in pairs(contexts) do
 		if context.active and context.modelKey then
 			local bossState = pullState and pullState.bosses and pullState.bosses[actorKey] or nil
-			if contextHasCombatEvidence(context, bossState) then
+			if contextHasCombatEvidence(context, bossState)
+				and (not isRaidPull(pull) or isBossSignalContext(context)) then
 				local encounter = groupEncounter and groupEncounter.actors and groupEncounter.actors[context.modelKey] and groupEncounter
 					or addon.Core.ModelStore.findSingleActorEncounter(pull.zone.key, context.modelKey)
 				addEncounterPredictions(context, encounter, bossState, minConfidence, now, scheduledKeys, pull.zone.key)

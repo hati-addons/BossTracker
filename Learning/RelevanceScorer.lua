@@ -9,6 +9,9 @@ local C = addon.Core.Constants
 local RelevanceScorer = {}
 addon.Learning.RelevanceScorer = RelevanceScorer
 
+local routineSpellIndex = {}
+local routineSpellIndexDirty = true
+
 local function displayIntervalFloor()
 	local config = addon.Core and addon.Core.Config
 	if config and config.getMinTimerDisplayInterval then
@@ -122,6 +125,57 @@ local function auraOnlySameHpRepeatReason(ability)
 	return nil
 end
 
+local function abilityHasRoutineRule(ability)
+	if type(ability) ~= "table" then
+		return false
+	end
+	return ability.autoSuppressed == true
+		or (type(ability.selectedRule) == "table" and ability.selectedRule.type == "routine_noise")
+		or (type(ability.rules) == "table" and type(ability.rules.routine_noise) == "table")
+end
+
+local function clearRoutineSpellIndex()
+	for spellKey in pairs(routineSpellIndex) do
+		routineSpellIndex[spellKey] = nil
+	end
+end
+
+local function rebuildRoutineSpellIndex()
+	clearRoutineSpellIndex()
+
+	local learned = addon.db and addon.db.learned
+	if type(learned) ~= "table" or type(learned.zones) ~= "table" then
+		routineSpellIndexDirty = false
+		return
+	end
+
+	for _, zone in pairs(learned.zones) do
+		for _, encounter in pairs(zone.encounters or {}) do
+			if type(encounter) == "table"
+				and encounter.suppressed ~= true
+				and encounter.autoSuppressed ~= true
+				and type(encounter.abilities) == "table" then
+				local seenInEncounter = {}
+				for _, ability in pairs(encounter.abilities) do
+					local spellKey = ability and ability.spellKey
+					if abilityHasRoutineRule(ability) and type(spellKey) == "string" and not seenInEncounter[spellKey] then
+						seenInEncounter[spellKey] = true
+						routineSpellIndex[spellKey] = (routineSpellIndex[spellKey] or 0) + 1
+					end
+				end
+			end
+		end
+	end
+
+	routineSpellIndexDirty = false
+end
+
+local function ensureRoutineSpellIndex()
+	if routineSpellIndexDirty then
+		rebuildRoutineSpellIndex()
+	end
+end
+
 function RelevanceScorer.routineReasonForAbility(ability)
 	if type(ability) ~= "table" then
 		return nil
@@ -146,6 +200,18 @@ function RelevanceScorer.applyRoutineCandidate(ability, candidate)
 	if ability.encounterAssociated then
 		return
 	end
+end
+
+function RelevanceScorer.markRoutineIndexDirty()
+	routineSpellIndexDirty = true
+end
+
+function RelevanceScorer.isKnownRoutineSpell(spellKey)
+	if type(spellKey) ~= "string" then
+		return false
+	end
+	ensureRoutineSpellIndex()
+	return (routineSpellIndex[spellKey] or 0) >= C.GLOBAL_ROUTINE_SPELL_MIN_ENCOUNTERS
 end
 
 function RelevanceScorer.refreshZone(zone)
@@ -184,7 +250,9 @@ function RelevanceScorer.refreshZone(zone)
 			end
 		end
 	end
+	routineSpellIndexDirty = true
 end
 
 function RelevanceScorer.start()
+	routineSpellIndexDirty = true
 end

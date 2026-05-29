@@ -8,6 +8,12 @@ local Harness = {}
 
 local fakeNow = 0
 local zoneName = "Replay Test Instance"
+local instanceType = "party"
+local difficultyIndex = 1
+local difficultyName = "Normal"
+local maxPlayers = 5
+local dynamicDifficulty = 0
+local isDynamic = false
 local mapId = 900001
 
 UIParent = UIParent or {}
@@ -67,7 +73,7 @@ function UnitIsPlayer()
 end
 
 function GetInstanceInfo()
-	return zoneName, "party", 1, "Normal", 5, 0, false, mapId
+	return zoneName, instanceType, difficultyIndex, difficultyName, maxPlayers, dynamicDifficulty, isDynamic, mapId
 end
 
 function GetRealZoneText()
@@ -165,6 +171,12 @@ function Harness.resetState(name)
 	end
 	fakeNow = 0
 	zoneName = name or "Replay Test Instance"
+	instanceType = "party"
+	difficultyIndex = 1
+	difficultyName = "Normal"
+	maxPlayers = 5
+	dynamicDifficulty = 0
+	isDynamic = false
 	mapId = mapId + 1
 	_G.BossTrackerDB = {}
 	_G.BossTrackerCharDB = {}
@@ -180,6 +192,18 @@ function Harness.resetState(name)
 	addon.Learning.AbilityLearner.start()
 	addon.Runtime.PredictionEngine.start()
 	addon.Runtime.TimerScheduler.start()
+end
+
+function Harness.setInstanceInfo(info)
+	info = info or {}
+	zoneName = info.name or zoneName
+	instanceType = info.instanceType or instanceType
+	difficultyIndex = info.difficultyIndex or difficultyIndex
+	difficultyName = info.difficultyName or difficultyName
+	maxPlayers = info.maxPlayers or maxPlayers
+	dynamicDifficulty = info.dynamicDifficulty or dynamicDifficulty
+	isDynamic = info.isDynamic ~= nil and info.isDynamic or isDynamic
+	mapId = info.mapId or mapId
 end
 
 function Harness.hostileFlags()
@@ -237,6 +261,57 @@ function Harness.emitSpell(args)
 	end
 	addon.Learning.AbilityLearner.observe(record, pull)
 	return pull, context, record
+end
+
+function Harness.emitCombatLogSpell(args)
+	fakeNow = args.t
+	local Util = addon.Core.Util
+	local sourceGUID = args.sourceGUID or Harness.makeGuid(args.sourceName, args.sourceId)
+	local destGUID = args.destGUID or "Player-0-0-0-0-1-ReplayTester"
+	local destName = args.destName or "ReplayTester"
+	local eventType = args.eventType or "SPELL_CAST_SUCCESS"
+	local spellSchool = args.spellSchool or 1
+	if args.modernPayload then
+		addon.Capture.CombatLog.handleEvent(
+			"COMBAT_LOG_EVENT_UNFILTERED",
+			fakeNow,
+			eventType,
+			false,
+			sourceGUID,
+			args.sourceName,
+			Harness.hostileFlags(),
+			0,
+			destGUID,
+			destName,
+			args.destFlags or 0,
+			0,
+			args.spellId,
+			args.spellName,
+			spellSchool
+		)
+	else
+		addon.Capture.CombatLog.handleEvent(
+			"COMBAT_LOG_EVENT_UNFILTERED",
+			fakeNow,
+			eventType,
+			sourceGUID,
+			args.sourceName,
+			Harness.hostileFlags(),
+			destGUID,
+			destName,
+			args.destFlags or 0,
+			args.spellId,
+			args.spellName,
+			spellSchool
+		)
+	end
+
+	local pull = addon.Capture.EncounterState.getCurrent()
+	local context = pull and pull.bossContexts and pull.bossContexts[Util.actorKey(args.sourceName, sourceGUID)] or nil
+	if context and args.boss ~= false then
+		Harness.markBossContext(context, args.hp)
+	end
+	return pull, context
 end
 
 function Harness.emitAssociatedSpell(args)

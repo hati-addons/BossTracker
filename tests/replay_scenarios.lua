@@ -204,6 +204,35 @@ local function scenarioConfigMinimumDelayRefreshesRules()
 	Harness.assertTrue(quickJab.autoSuppressed == true, "Raising the minimum delay should suppress the ability again")
 end
 
+local function scenarioKnownRoutineSpellSuppressesLiveProvisional()
+	Harness.resetState("Replay Known Routine")
+	local spellName = "Shared Filler"
+	for bossIndex = 1, 2 do
+		local boss = "Routine Boss " .. tostring(bossIndex)
+		local guid = Harness.makeGuid(boss, 700 + bossIndex)
+		for castIndex = 0, 3 do
+			Harness.emitSpell({
+				t = bossIndex * 100 + castIndex * 6,
+				sourceName = boss,
+				sourceGUID = guid,
+				spellName = spellName,
+				hp = 100 - castIndex * 12,
+			})
+		end
+		Harness.finishPull(bossIndex * 100 + 30, "unit_died")
+	end
+
+	Harness.assertTrue(addon.Learning.RelevanceScorer.isKnownRoutineSpell(addon.Core.Util.timerAbilityKey(nil, spellName)), "Routine spell index should learn shared filler from confirmed bosses")
+
+	local boss = "Fresh Boss"
+	local guid = Harness.makeGuid(boss, 710)
+	Harness.emitSpell({ t = 300, sourceName = boss, sourceGUID = guid, spellName = spellName, hp = 100 })
+	Harness.emitSpell({ t = 320, sourceName = boss, sourceGUID = guid, spellName = spellName, hp = 70 })
+
+	local timer = Harness.firstPredictionByName(spellName)
+	Harness.assertTrue(timer == nil, "Known global routine spells must not appear as live provisional timers even after a long first interval")
+end
+
 local function scenarioConfigDisplayOverrideForSuppressedAbility()
 	Harness.resetState("Replay Config Override")
 	local boss = "Override Commander"
@@ -249,6 +278,23 @@ local function scenarioCombatLogPayloadNormalization()
 	Harness.assertTrue(spellId == 45 and spellName == "Modern Blast" and spellSchool == 2, "Modern CLEU payload should keep spell fields")
 end
 
+local function scenarioCombatLogHandlerKeepsSpellNames()
+	Harness.resetState("Replay Combat Handler")
+	local boss = "Payload Healer"
+	local guid = Harness.makeGuid(boss, 6581)
+	Harness.emitCombatLogSpell({ t = 0, sourceName = boss, sourceGUID = guid, spellName = "Holy Light", spellId = 635, eventType = "SPELL_HEAL", hp = 100 })
+	Harness.emitCombatLogSpell({ t = 24, sourceName = boss, sourceGUID = guid, spellName = "Holy Light", spellId = 635, eventType = "SPELL_HEAL", hp = 70 })
+
+	local pullState = addon.Learning.AbilityLearner.getCurrentPullState()
+	local actorKey = addon.Core.Util.actorKey(boss, guid)
+	local bossState = pullState and pullState.bosses and pullState.bosses[actorKey] or nil
+	local holyLight = bossState and bossState.abilities[addon.Core.Util.timerAbilityKey(635, "Holy Light")] or nil
+	local eventNameAbility = bossState and bossState.abilities[addon.Core.Util.timerAbilityKey(nil, "SPELL_HEAL")] or nil
+	Harness.assertTrue(holyLight ~= nil, "CombatLog handler should learn the real spell name from the full CLEU path")
+	Harness.assertTrue(holyLight.spellName == "Holy Light", "CombatLog handler should not replace spell name with subevent")
+	Harness.assertTrue(eventNameAbility == nil, "CombatLog handler must not create SPELL_HEAL as an ability")
+end
+
 local function scenarioHealOnlySpellCanBecomeTimer()
 	Harness.resetState("Replay Boss Heal")
 	local boss = "Healing Commander"
@@ -259,6 +305,61 @@ local function scenarioHealOnlySpellCanBecomeTimer()
 	local timer = Harness.firstPredictionByName("Holy Light")
 	Harness.assertTrue(timer ~= nil, "A heal-only boss spell should be eligible for live timing")
 	Harness.assertNear(timer.remaining, 24, 0.2, "A heal-only boss spell should use activation-to-activation timing")
+end
+
+local function scenarioSavedVariablesCleanCombatLogSubeventAbilities()
+	Harness.resetState("Replay SavedVariables Cleanup")
+	local db = _G.BossTrackerDB
+	db.config.overrides = {
+		zones = {
+			cleanup_zone = {
+				encounters = {
+					cleanup_boss = {
+						abilities = {
+							bad = { display = "show" },
+							good = { display = "show" },
+						},
+					},
+				},
+			},
+		},
+	}
+	db.learned = {
+		zones = {
+			cleanup_zone = {
+				key = "cleanup_zone",
+				name = "Cleanup Zone",
+				encounters = {
+					cleanup_boss = {
+						key = "cleanup_boss",
+						name = "Cleanup Boss",
+						actors = {},
+						abilities = {
+							bad = {
+								key = "bad",
+								spellKey = "name:spell_heal",
+								spellName = "SPELL_HEAL",
+								spellId = 12.34,
+							},
+							good = {
+								key = "good",
+								spellKey = "name:holy_light",
+								spellName = "Holy Light",
+								spellId = 635,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	addon.Core.SavedVariables.init()
+	local encounter = addon.db.learned.zones.cleanup_zone.encounters.cleanup_boss
+	Harness.assertTrue(encounter.abilities.bad == nil, "SavedVariables cleanup should remove event-name abilities")
+	Harness.assertTrue(encounter.abilities.good ~= nil, "SavedVariables cleanup should preserve real spell abilities")
+	Harness.assertTrue(addon.db.config.overrides.zones.cleanup_zone.encounters.cleanup_boss.abilities.bad == nil, "SavedVariables cleanup should remove stale overrides for deleted abilities")
+	Harness.assertTrue(addon.db.config.overrides.zones.cleanup_zone.encounters.cleanup_boss.abilities.good ~= nil, "SavedVariables cleanup should preserve overrides for real abilities")
 end
 
 local function scenarioClearLearnedClearsConfigOverrides()
@@ -354,6 +455,111 @@ local function scenarioUnconfirmedEliteTrashNotPromoted()
 	Harness.assertTrue(model == nil, "Long unconfirmed elite trash must not be promoted as a boss")
 end
 
+local function scenarioRaidEliteTrashRequiresBossSignal()
+	Harness.resetState("Replay Raid Trash")
+	Harness.setInstanceInfo({
+		name = "Molten Core",
+		instanceType = "raid",
+		maxPlayers = 40,
+		mapId = 409,
+		difficultyIndex = 3,
+	})
+
+	local mob = "Ancient Core Hound"
+	local guid = Harness.makeGuid(mob, 690)
+	for index = 0, 16 do
+		local _, context = Harness.emitSpell({
+			t = index * 3,
+			sourceName = mob,
+			sourceGUID = guid,
+			spellName = index % 2 == 0 and "Melt Armor" or "Lava Breath",
+			hp = math.max(1, 100 - index * 6),
+			boss = false,
+		})
+		context.unitClassification = "elite"
+		context.lastUnitSource = "target"
+		context.lastUnitToken = "target"
+		context.lastHpPct = math.max(1, 100 - index * 6)
+	end
+	Harness.finishPull(55, "unit_died")
+
+	local model = Harness.encounter(addon.Core.Util.bossKey(mob, guid))
+	Harness.assertTrue(model == nil, "Raid elite trash without boss signal must not be promoted even with low HP and many events")
+end
+
+local function scenarioRaidFallbackLearnedModelDoesNotDisplay()
+	Harness.resetState("Replay Raid Existing Model")
+	Harness.setInstanceInfo({
+		name = "Molten Core",
+		instanceType = "raid",
+		maxPlayers = 40,
+		mapId = 409,
+		difficultyIndex = 3,
+	})
+
+	local mob = "Ancient Core Hound"
+	local bossKey = addon.Core.Util.bossKey(mob)
+	local spellKey = addon.Core.Util.timerAbilityKey(nil, "Melt Armor")
+	local abilityKey = addon.Core.ModelStore.abilityModelKey(bossKey, spellKey)
+	local zoneInfo = addon.Core.Util.zoneInfo()
+	addon.db.learned.zones[zoneInfo.key] = {
+		key = zoneInfo.key,
+		name = zoneInfo.name,
+		instanceType = zoneInfo.instanceType,
+		maxPlayers = zoneInfo.maxPlayers,
+		encounters = {
+			[bossKey] = {
+				key = bossKey,
+				name = mob,
+				confidence = 1,
+				actors = {
+					[bossKey] = {
+						key = bossKey,
+						name = mob,
+						lastDecision = {
+							reasons = "elite_classification,low_hp_completion",
+							bossUnitSignal = false,
+							councilSignal = false,
+						},
+					},
+				},
+				abilities = {
+					[abilityKey] = {
+						key = abilityKey,
+						actorKey = bossKey,
+						spellKey = spellKey,
+						spellName = "Melt Armor",
+						minInterval = 20,
+						confidence = 0.8,
+						selectedRule = {
+							type = "time_interval",
+							confidence = 0.8,
+							minInterval = 20,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	local guid = Harness.makeGuid(mob, 691)
+	local _, context = Harness.emitSpell({
+		t = 100,
+		sourceName = mob,
+		sourceGUID = guid,
+		spellName = "Melt Armor",
+		hp = 90,
+		boss = false,
+	})
+	context.unitClassification = "elite"
+	context.lastUnitSource = "target"
+	context.lastUnitToken = "target"
+	context.lastHpPct = 90
+
+	local timer = Harness.firstPredictionByName("Melt Armor")
+	Harness.assertTrue(timer == nil, "Old raid fallback models must not display for active trash without boss signal")
+end
+
 local function scenarioShortHighHpPartialIgnored()
 	Harness.resetState("Replay Short Partial")
 	local boss = "Lord Cobrahn"
@@ -383,14 +589,19 @@ local scenarios = {
 	scenarioSubTenSecondIntervalSuppression,
 	scenarioTenSecondIntervalAllowed,
 	scenarioConfigMinimumDelayRefreshesRules,
+	scenarioKnownRoutineSpellSuppressesLiveProvisional,
 	scenarioConfigDisplayOverrideForSuppressedAbility,
 	scenarioCombatLogPayloadNormalization,
+	scenarioCombatLogHandlerKeepsSpellNames,
 	scenarioHealOnlySpellCanBecomeTimer,
+	scenarioSavedVariablesCleanCombatLogSubeventAbilities,
 	scenarioClearLearnedClearsConfigOverrides,
 	scenarioWarningRaidPermissionUsesWotlkApi,
 	scenarioSingleSampleHpGateNotLiveTime,
 	scenarioTimedSingleCastDoesNotBecomeHpGateAfterTwoPulls,
 	scenarioUnconfirmedEliteTrashNotPromoted,
+	scenarioRaidEliteTrashRequiresBossSignal,
+	scenarioRaidFallbackLearnedModelDoesNotDisplay,
 	scenarioShortHighHpPartialIgnored,
 }
 

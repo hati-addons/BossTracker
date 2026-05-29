@@ -36,6 +36,10 @@ local function ensureZone(zoneInfo)
 		zones[zoneKey] = zone
 	end
 	zone.name = zoneInfo and zoneInfo.name or zone.name
+	zone.instanceType = zoneInfo and zoneInfo.instanceType or zone.instanceType
+	zone.maxPlayers = zoneInfo and zoneInfo.maxPlayers or zone.maxPlayers
+	zone.mapId = zoneInfo and zoneInfo.mapId or zone.mapId
+	zone.difficultyIndex = zoneInfo and zoneInfo.difficultyIndex or zone.difficultyIndex
 	zone.lastSeenAt = Util.wallTime()
 	zone.encounters = type(zone.encounters) == "table" and zone.encounters or {}
 	return zone
@@ -219,6 +223,9 @@ function ModelStore.deleteEncounter(zoneKey, encounterKey)
 	if addon.Core.Config then
 		addon.Core.Config.clearEncounterOverrides(zoneKey, encounterKey)
 	end
+	if addon.Learning and addon.Learning.RelevanceScorer and addon.Learning.RelevanceScorer.markRoutineIndexDirty then
+		addon.Learning.RelevanceScorer.markRoutineIndexDirty()
+	end
 	addon.Core.SavedVariables.boundLearnedData()
 	return true
 end
@@ -237,6 +244,9 @@ function ModelStore.deleteAbility(zoneKey, encounterKey, abilityKey)
 		addon.Core.Config.clearAbilityOverrides(zoneKey, encounterKey, abilityKey)
 	end
 	encounter.abilityCount = countKeys(encounter.abilities)
+	if addon.Learning and addon.Learning.RelevanceScorer and addon.Learning.RelevanceScorer.markRoutineIndexDirty then
+		addon.Learning.RelevanceScorer.markRoutineIndexDirty()
+	end
 	addon.Core.SavedVariables.boundLearnedData()
 	return true
 end

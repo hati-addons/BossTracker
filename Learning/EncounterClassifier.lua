@@ -65,6 +65,14 @@ local function pullWorldbossCount(modelStats)
 	return tonumber(modelStats and modelStats.pullWorldbossCount) or 0
 end
 
+local function isRaidInstance(modelStats)
+	local zone = modelStats and modelStats.zone
+	if type(zone) ~= "table" then
+		return false
+	end
+	return zone.instanceType == "raid" or (tonumber(zone.maxPlayers) or 0) >= 10
+end
+
 local function maxNumber(left, right)
 	left = tonumber(left) or 0
 	right = tonumber(right) or 0
@@ -110,6 +118,7 @@ function EncounterClassifier.scoreContext(context, bossState, modelStats)
 	local classifiedAsBoss = classification == "worldboss" or bossUnitSignal or councilSignal
 	local otherBossFramePresent = worldbossesInPull > 0 and not classifiedAsBoss
 	local lowHpCompletion = endHpPct ~= nil and endHpPct <= C.BOSS_COMPLETION_HP_THRESHOLD
+	local raidFallbackBlocked = isRaidInstance(modelStats) and not classifiedAsBoss
 
 	if classification == "worldboss" then
 		score = score + 0.90
@@ -251,6 +260,13 @@ function EncounterClassifier.scoreContext(context, bossState, modelStats)
 		partialAttempt = false
 		unconfirmedHighHp = false
 		addReason(reasons, "insufficient_high_hp_partial")
+	end
+
+	if raidFallbackBlocked then
+		isBoss = false
+		partialAttempt = false
+		unconfirmedHighHp = false
+		addReason(reasons, "raid_context_requires_boss_signal")
 	end
 
 	return {

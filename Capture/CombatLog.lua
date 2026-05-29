@@ -209,7 +209,6 @@ function CombatLog.handleEvent(eventName, ...)
 		return
 	end
 
-	local spellId, spellName, spellSchool = select(1, ...)
 	local record = makeRecord(timestamp, eventType, sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags, spellId, spellName, spellSchool)
 	local accepted, reason = addon.Learning.Relevance.evaluate(record)
 

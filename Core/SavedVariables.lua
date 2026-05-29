@@ -64,6 +64,115 @@ local function removeOneKey(tbl)
 	end
 end
 
+local COMBAT_LOG_SUBEVENT_NAMES = {
+	SPELL_CAST_START = true,
+	SPELL_CAST_SUCCESS = true,
+	SPELL_AURA_APPLIED = true,
+	SPELL_AURA_REFRESH = true,
+	SPELL_AURA_REMOVED = true,
+	SPELL_DAMAGE = true,
+	SPELL_MISSED = true,
+	SPELL_HEAL = true,
+	SPELL_INTERRUPT = true,
+	SPELL_SUMMON = true,
+	SPELL_PERIODIC_DAMAGE = true,
+	SPELL_PERIODIC_MISSED = true,
+	SPELL_PERIODIC_HEAL = true,
+	SPELL_PERIODIC_AURA_APPLIED = true,
+	SPELL_PERIODIC_AURA_REMOVED = true,
+	RANGE_DAMAGE = true,
+	RANGE_MISSED = true,
+	SWING_DAMAGE = true,
+	SWING_MISSED = true,
+	UNIT_DIED = true,
+}
+
+local function clearAbilityOverride(db, zoneKey, encounterKey, abilityKey)
+	local overrides = db
+		and db.config
+		and db.config.overrides
+		and db.config.overrides.zones
+		and db.config.overrides.zones[zoneKey]
+	local encounter = overrides and overrides.encounters and overrides.encounters[encounterKey] or nil
+	if encounter and encounter.abilities then
+		encounter.abilities[abilityKey] = nil
+	end
+end
+
+local function removeEmptyOverrideContainers(db)
+	local zones = db
+		and db.config
+		and db.config.overrides
+		and db.config.overrides.zones
+	if type(zones) ~= "table" then
+		return
+	end
+
+	for zoneKey, zone in pairs(zones) do
+		for encounterKey, encounter in pairs(zone.encounters or {}) do
+			local hasAbilityOverride = false
+			for _ in pairs(encounter.abilities or {}) do
+				hasAbilityOverride = true
+				break
+			end
+			if not hasAbilityOverride then
+				zone.encounters[encounterKey] = nil
+			end
+		end
+		local hasEncounterOverride = false
+		for _ in pairs(zone.encounters or {}) do
+			hasEncounterOverride = true
+			break
+		end
+		if not hasEncounterOverride then
+			zones[zoneKey] = nil
+		end
+	end
+end
+
+local function abilityLooksLikeCombatLogSubevent(ability)
+	if type(ability) ~= "table" then
+		return false
+	end
+	local spellName = ability.spellName
+	if type(spellName) ~= "string" or not COMBAT_LOG_SUBEVENT_NAMES[spellName] then
+		return false
+	end
+	local spellKey = "name:" .. string.lower(string.gsub(spellName, "[^%w]+", "_"))
+	return ability.spellKey == spellKey or ability.key == spellKey or type(ability.spellId) == "number"
+end
+
+local function cleanupCombatLogSubeventAbilities(db)
+	local learned = db and db.learned
+	local removedAbilities = 0
+	local removedEncounters = 0
+	if type(learned) ~= "table" or type(learned.zones) ~= "table" then
+		return 0, 0
+	end
+
+	for zoneKey, zone in pairs(learned.zones) do
+		for encounterKey, encounter in pairs(zone.encounters or {}) do
+			for abilityKey, ability in pairs(encounter.abilities or {}) do
+				if abilityLooksLikeCombatLogSubevent(ability) then
+					encounter.abilities[abilityKey] = nil
+					clearAbilityOverride(db, zoneKey, encounterKey, abilityKey)
+					removedAbilities = removedAbilities + 1
+				end
+			end
+			encounter.abilityCount = countKeys(encounter.abilities)
+			if encounter.abilityCount == 0 then
+				zone.encounters[encounterKey] = nil
+				removedEncounters = removedEncounters + 1
+			end
+		end
+	end
+
+	if removedAbilities > 0 then
+		removeEmptyOverrideContainers(db)
+	end
+	return removedAbilities, removedEncounters
+end
+
 local function boundLearnedData(learned)
 	if type(learned.zones) ~= "table" then
 		learned.zones = {}
@@ -126,6 +235,17 @@ function SavedVariables.init()
 	copyDefaults(db.config, C.DEFAULT_CONFIG)
 	db.learned = type(db.learned) == "table" and db.learned or { zones = {} }
 	db.learned.zones = type(db.learned.zones) == "table" and db.learned.zones or {}
+	local removedAbilities, removedEncounters = cleanupCombatLogSubeventAbilities(db)
+	if removedAbilities > 0 then
+		appendMigration(db, {
+			from = C.SCHEMA_VERSION,
+			to = C.SCHEMA_VERSION,
+			at = type(time) == "function" and time() or nil,
+			reason = "Removed learned abilities created from combat-log subevent names after parser regression.",
+			removedAbilities = removedAbilities,
+			removedEncounters = removedEncounters,
+		})
+	end
 
 	db.debug = type(db.debug) == "table" and db.debug or {}
 	db.debug.runs = trimArray(db.debug.runs, C.MAX_DEBUG_RUNS)
@@ -151,6 +271,9 @@ function SavedVariables.clearLearnedData(reason)
 	addon.db.learned = { zones = {} }
 	if addon.db.config and addon.db.config.overrides then
 		addon.db.config.overrides = { zones = {} }
+	end
+	if addon.Learning and addon.Learning.RelevanceScorer and addon.Learning.RelevanceScorer.markRoutineIndexDirty then
+		addon.Learning.RelevanceScorer.markRoutineIndexDirty()
 	end
 	appendMigration(addon.db, {
 		from = C.SCHEMA_VERSION,

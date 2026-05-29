@@ -49,8 +49,12 @@ The addon records hostile NPC spell evidence broadly because manual dungeon test
 - Cast lifecycle events are deduplicated. A cast-start or cast-success followed shortly by success, damage, aura, heal, summon, or miss evidence counts as one occurrence, so cast time is not learned as the boss cooldown.
 - Self-applied aura windows are treated as ability lifecycles. Channeled mechanics such as Whirlwind can emit an activation, a self aura, repeated damage events, and an aura removal; the timer model must learn activation-to-activation intervals rather than channel duration or tick spacing.
 - Alpha learned data is reset on schema changes. The addon is unreleased, so correctness is preferred over preserving contaminated early models.
+- SavedVariables initialization may remove known-contaminated alpha models when a parser bug creates impossible learned abilities, for example combat-log subevent names persisted as spell names.
+- Alpha run diagnostics intentionally keep larger per-run rings than a release build would need because manual dungeon tests can include long trash sections before a boss pull.
 - Persistent learned timers require current boss combat evidence before display. A boss merely being targeted during unrelated trash combat must not open timer bars until that boss context has combat-log activity or a matching unit is affecting combat.
+- Raid-instance fallback is stricter than dungeon fallback: elite raid trash must not become a learned boss or show persistent timers unless it has a boss-frame, worldboss, or council signal. Large trash mobs can otherwise satisfy low-HP, duration, and event-volume heuristics.
 - Repeated abilities with an observed interval below 10 seconds are hidden from the timer display. The evidence is retained for diagnostics, but the spell is treated as standard repertoire rather than a useful timer bar.
+- Repeated filler can still look relevant for the first two casts of a fresh pull if the initial interval is unusually long. A global routine-spell index derived from confirmed learned bosses suppresses those shared filler spells before live provisional timers are created.
 - Pure aura-only repeats at nearly the same HP are hidden as likely passive, consequence, or phase-state noise unless future relevance logic has stronger evidence that they are player-actionable mechanics.
 - Routine suppression applies to live provisional timers as well as persisted models, so repeated filler casts do not flash in the timer frame during the first observed boss pull.
 - A live time timer is not created from only one interval sample when the two activations occur at nearly the same HP. That pattern is treated as likely HP-gated or phase-gated until later evidence proves a real cooldown.
@@ -92,6 +96,14 @@ AzerothCore scripts under `/home/two/projects/azerothcore-wotlk` are useful as a
 - Summon and add ownership patterns where the boss triggers adds or add sources perform encounter mechanics.
 
 The addon can only infer these patterns from client-visible evidence, so learned models must prefer stable activation evidence and keep enough diagnostics to correct bad assumptions.
+
+## Observed Ascension Encounter Notes
+
+These notes are player-observed Bronzebeard behavior and should be treated as diagnostic context, not hard-coded encounter rules.
+
+- Molten Core, Sulfuron Harbinger: all four adds can be polymorphed for the fight. If that happens, the add actors may contribute little or no spell evidence, so missing add heals or casts such as Classic `Dark Mending` is not automatically a detection failure.
+- Molten Core, Majordomo Executus: the encounter ends through roleplay at roughly 20% boss HP. A qualified partial context around that HP with no normal death event can be a correct completed encounter.
+- Molten Core, Ragnaros: raid attempts may end by abandonment rather than kill or wipe. A qualified worldboss/boss-frame context ending around medium HP should be retained as partial learning evidence, not interpreted as a bad kill boundary.
 
 ## C++ Pattern Replay Testing
 
