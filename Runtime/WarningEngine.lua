@@ -25,6 +25,17 @@ local function warningMode(timer)
 	return config.getAbilityWarningMode(timer.zoneKey, timer.encounterKey, timer.abilityKey)
 end
 
+local function warningSound(timer)
+	if not timer or not timer.zoneKey or not timer.encounterKey or not timer.abilityKey then
+		return C.WARNING_SOUND_OFF or "none"
+	end
+	local config = addon.Core and addon.Core.Config
+	if not config or not config.getAbilityWarningSound then
+		return C.WARNING_SOUND_OFF or "none"
+	end
+	return config.getAbilityWarningSound(timer.zoneKey, timer.encounterKey, timer.abilityKey)
+end
+
 local function playerIsInRaid()
 	if IsInRaid and IsInRaid() then
 		return true
@@ -67,6 +78,23 @@ local function emitWarning(mode, message)
 	else
 		personalWarning(message)
 	end
+end
+
+function WarningEngine.playWarningSound(soundKey)
+	local config = addon.Core and addon.Core.Config
+	local sound = config and config.getWarningSoundInfo and config.getWarningSoundInfo(soundKey) or nil
+	if type(sound) ~= "table" or not sound.path or not PlaySoundFile then
+		return false
+	end
+
+	local ok = pcall(PlaySoundFile, sound.path, "Master")
+	if not ok then
+		ok = pcall(PlaySoundFile, sound.path)
+	end
+	if not ok and addon.Core.Logger then
+		addon.Core.Logger.warn("WarningEngine", "Warning sound playback failed", { soundKey = sound.key, path = sound.path })
+	end
+	return ok and true or false
 end
 
 local function warningKey(timer)
@@ -121,6 +149,7 @@ local function onUpdate(self, elapsed)
 			local key = warningKey(timer)
 			if not warned[key] then
 				warned[key] = (timer.nextAt or now) + 20
+				WarningEngine.playWarningSound(warningSound(timer))
 				emitWarning(mode, tostring(timer.spellName or "Ability") .. " ready in " .. tostring(math.floor(leadTime + 0.5)) .. " seconds.")
 			end
 		end

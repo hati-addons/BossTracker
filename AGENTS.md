@@ -31,6 +31,7 @@
 - Do not promote stable HP samples to an `hp_gate` rule before at least three HP samples exist. With one or two pulls, prefer time/phase timing over showing HP percentages.
 - Keep very short, high-HP boss-frame partials diagnostic-only when they end without death or low-HP evidence. A bossframe alone is strong identity evidence, but one pre-combat cast should not become a durable pull.
 - Keep timer UI polling on an always-active ticker, not on the visible timer frame itself. A hidden WoW frame may stop receiving `OnUpdate`, preventing the timer window from opening itself.
+- Deduplicate displayed timer predictions by boss model and spell key, not by active source actor. Same-name boss contexts and learned-plus-provisional evidence can otherwise create several bars for one player-facing ability.
 - Timer UI positioning and resizing must be direct mouse interactions on the visible frame; slash commands may remain only as fallback or recovery controls.
 - Timer frame locking must block direct drag, corner resizing, and mouse-wheel scaling, not only hide the frame when idle.
 - `/bt panic` must suppress timer visuals and configured warnings while keeping capture and diagnostics active.

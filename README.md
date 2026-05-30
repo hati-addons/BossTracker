@@ -15,6 +15,7 @@ BossTracker is made for players who want cleaner timing information for interrup
 - Supports dungeons, raids, single bosses, council fights, and late-spawning boss units.
 - Lets you hide, show, highlight, or warn for individual learned abilities.
 - Can send a personal or raid warning shortly before a configured ability is ready.
+- Can play an optional alert sound together with configured personal or raid warnings.
 
 BossTracker improves with evidence. The first pull of a boss may show little or nothing. Once the addon has seen an ability repeat or has enough useful timing evidence, timers can appear during the fight and on later pulls.
 
@@ -57,6 +58,7 @@ The configuration lets you:
 - Set an ability to be highlighted.
 - Enable a 5-second personal warning.
 - Enable a 5-second raid warning if you are allowed to send one.
+- Choose an optional warning sound for each ability.
 
 Raid warning falls back to a personal warning if raid warning is not available.
 
@@ -109,7 +111,7 @@ The UI is distracting during a fight:
 
 BossTracker learns from what your client can see. Some Ascension encounters may behave differently from public boss scripts or guides, and custom mechanics may need several pulls before the addon has enough evidence.
 
-The addon does not play audio countdowns yet.
+The addon does not play spoken audio countdowns yet. Optional alert sounds can be configured per ability.
 
 ## Maintainer Notes
 

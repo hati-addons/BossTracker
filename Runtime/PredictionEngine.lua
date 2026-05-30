@@ -148,9 +148,30 @@ local function liveBossQualifies(context, bossState, pullWorldbossCount, now)
 end
 
 local function timerIdentity(context, ability)
-	return tostring(context and context.actorKey or context and context.modelKey or "unknown")
+	return tostring(context and context.modelKey or context and context.actorKey or "unknown")
 		.. "|"
-		.. tostring(ability and ability.key or "unknown")
+		.. tostring(ability and (ability.spellKey or ability.key) or "unknown")
+end
+
+local function timerPriority(timer)
+	local priority = 0
+	if timer.seenThisPull then
+		priority = priority + 4
+	end
+	if timer.bossSignal then
+		priority = priority + 2
+	end
+	if not timer.provisional then
+		priority = priority + 1
+	end
+	return priority
+end
+
+local function shouldReplaceTimer(existing, candidate)
+	if not existing then
+		return true
+	end
+	return timerPriority(candidate) > timerPriority(existing)
 end
 
 local function addTimer(ability, pullAbility, context, nextAt, mode, scheduledKeys)
@@ -158,13 +179,6 @@ local function addTimer(ability, pullAbility, context, nextAt, mode, scheduledKe
 	local remaining = nextAt and (nextAt - now) or nil
 	if remaining and remaining < -8 then
 		return
-	end
-	if scheduledKeys then
-		local identity = timerIdentity(context, ability)
-		if scheduledKeys[identity] then
-			return
-		end
-		scheduledKeys[identity] = true
 	end
 
 	local duration = ability.minInterval
@@ -175,7 +189,7 @@ local function addTimer(ability, pullAbility, context, nextAt, mode, scheduledKe
 		duration = 1
 	end
 
-	predictions[#predictions + 1] = {
+	local timer = {
 		key = ability.key,
 		zoneKey = ability.zoneKey,
 		encounterKey = ability.encounterKey,
@@ -194,9 +208,24 @@ local function addTimer(ability, pullAbility, context, nextAt, mode, scheduledKe
 		encounterAssociated = ability.encounterAssociated == true,
 		sourceName = ability.associatedSourceName,
 		seenThisPull = pullAbility and pullAbility.activationCount and pullAbility.activationCount > 0 or false,
+		bossSignal = isBossSignalContext(context),
 		hpPct = ability.avgHpPct,
 		bossName = context and context.name,
 	}
+
+	if scheduledKeys then
+		local identity = timerIdentity(context, ability)
+		local existingIndex = scheduledKeys[identity]
+		if existingIndex then
+			if shouldReplaceTimer(predictions[existingIndex], timer) then
+				predictions[existingIndex] = timer
+			end
+			return
+		end
+		scheduledKeys[identity] = #predictions + 1
+	end
+
+	predictions[#predictions + 1] = timer
 end
 
 local function looksLikeSingleSampleHpGate(pullAbility)

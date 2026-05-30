@@ -15,6 +15,9 @@ local maxPlayers = 5
 local dynamicDifficulty = 0
 local isDynamic = false
 local mapId = 900001
+local unitState = {}
+local createdFrames = {}
+local playedSounds = {}
 
 UIParent = UIParent or {}
 DEFAULT_CHAT_FRAME = DEFAULT_CHAT_FRAME or {
@@ -53,19 +56,35 @@ function UnitName(unit)
 	if unit == "player" then
 		return "ReplayTester"
 	end
-	return nil
+	return unitState[unit] and unitState[unit].name or nil
 end
 
-function UnitExists()
-	return false
+function UnitExists(unit)
+	return unitState[unit] and unitState[unit].exists ~= false or false
 end
 
-function UnitAffectingCombat()
-	return false
+function UnitGUID(unit)
+	return unitState[unit] and unitState[unit].guid or nil
 end
 
-function UnitCanAttack()
-	return false
+function UnitHealth(unit)
+	return unitState[unit] and unitState[unit].health or 0
+end
+
+function UnitHealthMax(unit)
+	return unitState[unit] and unitState[unit].maxHealth or 100
+end
+
+function UnitClassification(unit)
+	return unitState[unit] and unitState[unit].classification or nil
+end
+
+function UnitAffectingCombat(unit)
+	return unitState[unit] and unitState[unit].combat == true or false
+end
+
+function UnitCanAttack(_, unit)
+	return unitState[unit] and unitState[unit].attackable ~= false or false
 end
 
 function UnitIsPlayer()
@@ -84,10 +103,11 @@ function GetSubZoneText()
 	return ""
 end
 
-function CreateFrame()
+function CreateFrame(_, name)
 	local frame = {
 		events = {},
 		scripts = {},
+		name = name,
 	}
 	function frame:RegisterEvent(eventName)
 		self.events[eventName] = true
@@ -107,7 +127,18 @@ function CreateFrame()
 	function frame:Hide()
 		self.shown = false
 	end
+	if name then
+		createdFrames[name] = frame
+	end
 	return frame
+end
+
+function PlaySoundFile(path, channel)
+	playedSounds[#playedSounds + 1] = {
+		path = path,
+		channel = channel,
+	}
+	return true
 end
 
 local function loadAddon()
@@ -178,6 +209,8 @@ function Harness.resetState(name)
 	dynamicDifficulty = 0
 	isDynamic = false
 	mapId = mapId + 1
+	unitState = {}
+	playedSounds = {}
 	_G.BossTrackerDB = {}
 	_G.BossTrackerCharDB = {}
 	addon.Core.SavedVariables.init()
@@ -192,6 +225,30 @@ function Harness.resetState(name)
 	addon.Learning.AbilityLearner.start()
 	addon.Runtime.PredictionEngine.start()
 	addon.Runtime.TimerScheduler.start()
+end
+
+function Harness.frame(name)
+	return createdFrames[name]
+end
+
+function Harness.clearPlayedSounds()
+	playedSounds = {}
+end
+
+function Harness.lastPlayedSound()
+	return playedSounds[#playedSounds]
+end
+
+function Harness.setUnit(unit, data)
+	unitState[unit] = data
+	if data and data.exists == nil then
+		data.exists = true
+	end
+	return unitState[unit]
+end
+
+function Harness.clearUnit(unit)
+	unitState[unit] = nil
 end
 
 function Harness.setInstanceInfo(info)

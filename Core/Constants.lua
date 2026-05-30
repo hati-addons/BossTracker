@@ -5,7 +5,7 @@ local addon = _G.BossTracker
 local C = {}
 addon.Core.Constants = C
 
-C.VERSION = "0.4.0"
+C.VERSION = "1.1.0"
 C.SCHEMA_VERSION = 6
 
 C.DEFAULT_CONFIG = {
@@ -37,6 +37,57 @@ C.DEFAULT_CHAR_CONFIG = {
 	},
 	panic = false,
 	previewTimers = false,
+}
+
+C.WARNING_SOUND_OFF = "none"
+C.WARNING_SOUND_OPTIONS = {
+	{
+		key = C.WARNING_SOUND_OFF,
+		label = "None",
+		shortLabel = "None",
+	},
+	{
+		key = "soft_bell",
+		label = "Soft Bell",
+		shortLabel = "Bell",
+		path = "Sound\\Doodad\\BellTollNightElf.wav",
+	},
+	{
+		key = "flag_alert",
+		label = "Flag Alert",
+		shortLabel = "Flag",
+		path = "Sound\\Spells\\PVPFlagTaken.wav",
+	},
+	{
+		key = "warning_chime",
+		label = "Warning Chime",
+		shortLabel = "Warn",
+		path = "Sound\\Spells\\PVPWarning.wav",
+	},
+	{
+		key = "focus_chime",
+		label = "Focus Chime",
+		shortLabel = "Chime",
+		path = "Interface\\AddOns\\BossTracker\\Media\\Sounds\\bt_focus_chime.wav",
+	},
+	{
+		key = "soft_pulse",
+		label = "Soft Pulse",
+		shortLabel = "Pulse",
+		path = "Interface\\AddOns\\BossTracker\\Media\\Sounds\\bt_soft_pulse.wav",
+	},
+	{
+		key = "glass_tick",
+		label = "Glass Tick",
+		shortLabel = "Tick",
+		path = "Interface\\AddOns\\BossTracker\\Media\\Sounds\\bt_glass_tick.wav",
+	},
+	{
+		key = "rising_sweep",
+		label = "Rising Sweep",
+		shortLabel = "Sweep",
+		path = "Interface\\AddOns\\BossTracker\\Media\\Sounds\\bt_rising_sweep.wav",
+	},
 }
 
 C.MAX_DEBUG_RUNS = 5
@@ -72,6 +123,8 @@ C.TIMER_UPDATE_SECONDS = 0.15
 C.ENCOUNTER_TICK_SECONDS = 0.50
 C.MAX_BOSS_UNIT_FRAMES = _G.MAX_BOSS_FRAMES or 5
 C.COMBAT_END_SETTLE_SECONDS = 2.0
+C.BOSS_DEATH_VISUAL_GRACE_SECONDS = 2.5
+C.BOSS_OUT_OF_COMBAT_HOLD_SECONDS = 10.0
 C.BOSS_CONTEXT_IDLE_SECONDS = 75.0
 C.MODULE_ERROR_LIMIT = 5
 

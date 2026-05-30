@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds a WoW-installable addon archive from the TOC runtime file list.
-# The package intentionally excludes tests, documentation, repository metadata,
-# and development-only files by copying only the TOC and files referenced by it.
+# Builds a WoW-installable addon archive from the TOC runtime file list plus
+# static media assets. The package intentionally excludes tests, documentation,
+# repository metadata, and development-only files.
 
 addon_name="${ADDON_NAME:-BossTracker}"
 toc_file="${TOC_FILE:-${addon_name}.toc}"
@@ -74,6 +74,14 @@ while IFS= read -r raw_line; do
   mkdir -p "$(dirname "${target_path}")"
   cp "${source_path}" "${target_path}"
 done < "${toc_file}"
+
+if [ -d "Media" ]; then
+  while IFS= read -r media_path; do
+    target_path="${package_root}/${media_path}"
+    mkdir -p "$(dirname "${target_path}")"
+    cp "${media_path}" "${target_path}"
+  done < <(find "Media" -type f | sort)
+fi
 
 (
   cd "${stage_root}"

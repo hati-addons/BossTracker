@@ -494,6 +494,7 @@ local function scenarioClearLearnedClearsConfigOverrides()
 	Harness.resetState("Replay Clear Learned")
 	addon.Core.Config.setAbilityDisplayMode("zone-a", "boss-a", "spell-a", "show")
 	addon.Core.Config.setAbilityWarningMode("zone-a", "boss-a", "spell-a", "raid")
+	addon.Core.Config.setAbilityWarningSound("zone-a", "boss-a", "spell-a", "soft_bell")
 	Harness.assertTrue(addon.db.config.overrides.zones["zone-a"] ~= nil, "Config override fixture should be present")
 	addon.Core.SavedVariables.clearLearnedData("Replay clear learned")
 	Harness.assertTrue(next(addon.db.learned.zones) == nil, "Clear learned should remove learned zones")
@@ -527,6 +528,68 @@ local function scenarioWarningRaidPermissionUsesWotlkApi()
 	UnitIsGroupLeader = previousUnitIsGroupLeader
 	IsRaidLeader = previousIsRaidLeader
 	IsRaidOfficer = previousIsRaidOfficer
+end
+
+local function scenarioConfiguredWarningPlaysSound()
+	Harness.resetState("Replay Warning Sound")
+	local boss = "Sound Sentinel"
+	local guid = Harness.makeGuid(boss, 650)
+	local actorKey = addon.Core.Util.bossKey(boss, guid)
+	Harness.emitSpell({ t = 0, sourceName = boss, sourceGUID = guid, spellName = "Resonant Blast", hp = 100 })
+	Harness.emitSpell({ t = 20, sourceName = boss, sourceGUID = guid, spellName = "Resonant Blast", hp = 72 })
+	Harness.finishPull(45, "unit_died")
+
+	local model = Harness.encounter(actorKey)
+	local ability = Harness.ability(model, actorKey, "Resonant Blast")
+	local zoneKey = addon.Core.Util.zoneInfo().key
+	Harness.assertTrue(model and ability, "Repeated boss ability should create a learned warning timer")
+	addon.Core.Config.setAbilityWarningMode(zoneKey, model.key, ability.key, "personal")
+	addon.Core.Config.setAbilityWarningSound(zoneKey, model.key, ability.key, "soft_bell")
+
+	Harness.emitSpell({ t = 100, sourceName = boss, sourceGUID = guid, spellName = "Resonant Blast", hp = 100 })
+	local timer = Harness.firstPredictionByName("Resonant Blast")
+	Harness.assertTrue(timer ~= nil and timer.zoneKey == zoneKey, "Learned timer should carry config keys")
+	addon.Runtime.WarningEngine.start()
+
+	Harness.clearPlayedSounds()
+	Harness.setTime((timer.nextAt or 40) - 4)
+	local warningFrame = Harness.frame("BossTrackerWarningTicker")
+	Harness.assertTrue(warningFrame and warningFrame.scripts and warningFrame.scripts.OnUpdate, "Warning ticker frame should be available")
+	warningFrame.scripts.OnUpdate(warningFrame, addon.Core.Constants.TIMER_UPDATE_SECONDS)
+
+	local sound = Harness.lastPlayedSound()
+	local expected = addon.Core.Config.getWarningSoundInfo("soft_bell")
+	Harness.assertTrue(sound and sound.path == expected.path, "Configured warning sound should play with the warning")
+	Harness.assertTrue(sound.channel == "Master", "Warning sounds should use the master channel")
+end
+
+local function scenarioPredictionDeduplicatesSameModelAbility()
+	Harness.resetState("Replay Duplicate Timers")
+	local boss = "Echo Regent"
+	local firstGuid = Harness.makeGuid(boss, 651)
+	local secondGuid = Harness.makeGuid(boss, 652)
+	local actorKey = addon.Core.Util.bossKey(boss, firstGuid)
+
+	Harness.emitSpell({ t = 12, sourceName = boss, sourceGUID = firstGuid, spellName = "Echo Nova", hp = 92 })
+	Harness.emitSpell({ t = 36, sourceName = boss, sourceGUID = firstGuid, spellName = "Echo Nova", hp = 64 })
+	Harness.finishPull(60, "unit_died")
+	Harness.assertTrue(Harness.ability(Harness.encounter(actorKey), actorKey, "Echo Nova") ~= nil, "Fixture should learn Echo Nova")
+
+	Harness.emitSpell({ t = 100, sourceName = boss, sourceGUID = firstGuid, spellName = "Echo Nova", hp = 100 })
+	Harness.emitSpell({ t = 120, sourceName = boss, sourceGUID = secondGuid, spellName = "Mirror Step", hp = 100 })
+	Harness.emitSpell({ t = 124, sourceName = boss, sourceGUID = firstGuid, spellName = "Echo Nova", hp = 80 })
+
+	local timers = addon.Runtime.PredictionEngine.getPredictions(true)
+	local count = 0
+	local nextAt
+	for index = 1, #timers do
+		if timers[index].spellName == "Echo Nova" then
+			count = count + 1
+			nextAt = timers[index].nextAt
+		end
+	end
+	Harness.assertTrue(count == 1, "Same model and spell should produce one timer across duplicate active contexts")
+	Harness.assertNear(nextAt, 148, 0.01, "Duplicate timer dedupe should keep the seen-this-pull interval prediction")
 end
 
 local function scenarioSingleSampleHpGateNotLiveTime()
@@ -707,6 +770,76 @@ local function scenarioShortHighHpPartialIgnored()
 	Harness.assertTrue(model.pullCount == 1, "Ignored high-HP partial should not increment the learned pull count")
 end
 
+local function emitUnitDied(t, guid, name)
+	Harness.setTime(t)
+	addon.Capture.CombatLog.handleEvent(
+		"COMBAT_LOG_EVENT_UNFILTERED",
+		t,
+		"UNIT_DIED",
+		nil,
+		nil,
+		0,
+		guid,
+		name,
+		Harness.hostileFlags()
+	)
+end
+
+local function scenarioUnitDiedDefersWhileBossFrameAlive()
+	Harness.resetState("Replay Low HP Visual Death")
+	local boss = "Aggem Thorncurse"
+	local guid = Harness.makeGuid(boss, 710)
+	Harness.setUnit("boss1", {
+		name = boss,
+		guid = guid,
+		classification = "worldboss",
+		health = 1,
+		maxHealth = 100,
+		combat = true,
+	})
+
+	Harness.emitSpell({ t = 0, sourceName = boss, sourceGUID = guid, spellName = "Healing Stream", hp = 20 })
+	Harness.emitSpell({ t = 12, sourceName = boss, sourceGUID = guid, spellName = "Healing Stream", hp = 1 })
+	Harness.assertTrue(Harness.firstPredictionByName("Healing Stream") ~= nil, "Low-HP boss should have a live timer before UNIT_DIED")
+
+	emitUnitDied(13, guid, boss)
+	local pull = addon.Capture.EncounterState.getCurrent()
+	local context = pull and pull.bossContexts[addon.Core.Util.actorKey(boss, guid)]
+	Harness.assertTrue(context and context.active == true, "UNIT_DIED should be deferred while the matching boss frame is still alive")
+	Harness.assertTrue(Harness.firstPredictionByName("Healing Stream") ~= nil, "Timer should remain visible while UNIT_DIED is deferred")
+
+	Harness.setUnit("boss1", {
+		name = boss,
+		guid = guid,
+		classification = "worldboss",
+		health = 0,
+		maxHealth = 100,
+		combat = false,
+	})
+	emitUnitDied(14, guid, boss)
+	Harness.assertTrue(context.active == true, "Low-HP visual death grace should not close immediately after the first deferred UNIT_DIED")
+	emitUnitDied(16, guid, boss)
+	Harness.assertTrue(context.active == false, "UNIT_DIED should close once the matching boss frame is no longer alive")
+	Harness.assertTrue(Harness.firstPredictionByName("Healing Stream") == nil, "Timer should disappear after confirmed boss death")
+end
+
+local function scenarioUnitDiedUsesGuidBeforeName()
+	Harness.resetState("Replay Same Name Death")
+	local name = "Razorfen Defender"
+	local firstGuid = Harness.makeGuid(name, 721)
+	local secondGuid = Harness.makeGuid(name, 722)
+	Harness.emitSpell({ t = 0, sourceName = name, sourceGUID = firstGuid, spellName = "Strike", hp = 100, boss = false })
+	Harness.emitSpell({ t = 1, sourceName = name, sourceGUID = secondGuid, spellName = "Strike", hp = 100, boss = false })
+
+	local pull = addon.Capture.EncounterState.getCurrent()
+	local firstContext = pull.bossContexts[addon.Core.Util.actorKey(name, firstGuid)]
+	local secondContext = pull.bossContexts[addon.Core.Util.actorKey(name, secondGuid)]
+	emitUnitDied(2, firstGuid, name)
+
+	Harness.assertTrue(firstContext.active == false, "UNIT_DIED should close the exact matching GUID")
+	Harness.assertTrue(secondContext.active == true, "UNIT_DIED must not close other active units with the same name")
+end
+
 local scenarios = {
 	scenarioChannelLifecycle,
 	scenarioPhaseHpRules,
@@ -729,12 +862,16 @@ local scenarios = {
 	scenarioSavedVariablesCleanCombatLogSubeventAbilities,
 	scenarioClearLearnedClearsConfigOverrides,
 	scenarioWarningRaidPermissionUsesWotlkApi,
+	scenarioConfiguredWarningPlaysSound,
+	scenarioPredictionDeduplicatesSameModelAbility,
 	scenarioSingleSampleHpGateNotLiveTime,
 	scenarioTimedSingleCastDoesNotBecomeHpGateAfterTwoPulls,
 	scenarioUnconfirmedEliteTrashNotPromoted,
 	scenarioRaidEliteTrashRequiresBossSignal,
 	scenarioRaidFallbackLearnedModelDoesNotDisplay,
 	scenarioShortHighHpPartialIgnored,
+	scenarioUnitDiedDefersWhileBossFrameAlive,
+	scenarioUnitDiedUsesGuidBeforeName,
 }
 
 for index = 1, #scenarios do

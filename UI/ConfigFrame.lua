@@ -27,6 +27,8 @@ local bossRows = {}
 local abilityRows = {}
 local namedIndex = 0
 local refresh
+local warningSoundLabel
+local applyWarningSoundControl
 
 local function nextName(prefix)
 	namedIndex = namedIndex + 1
@@ -288,6 +290,7 @@ local function collectAbilities()
 				active = active,
 				displayMode = addon.Core.Config.getAbilityDisplayMode(state.selectedZoneKey, state.selectedEncounterKey, abilityKey),
 				warningMode = addon.Core.Config.getAbilityWarningMode(state.selectedZoneKey, state.selectedEncounterKey, abilityKey),
+				warningSound = addon.Core.Config.getAbilityWarningSound(state.selectedZoneKey, state.selectedEncounterKey, abilityKey),
 			}
 		end
 	end
@@ -347,11 +350,11 @@ local function applyAbilityIcon(row, ability)
 		row.icon:SetTexture(texture)
 		row.icon:Show()
 		row.name:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
-		row.name:SetWidth(180)
+		row.name:SetWidth(146)
 	else
 		row.icon:Hide()
 		row.name:SetPoint("LEFT", row, "LEFT", 7, 0)
-		row.name:SetWidth(196)
+		row.name:SetWidth(164)
 	end
 end
 
@@ -457,6 +460,7 @@ local function updateAbilityRows()
 			setSegmentButtonActive(row.warnOffButton, entry.warningMode == "off")
 			setSegmentButtonActive(row.warnPersonalButton, entry.warningMode == "personal")
 			setSegmentButtonActive(row.warnRaidButton, entry.warningMode == "raid")
+			applyWarningSoundControl(row, entry.warningSound, entry.warningMode ~= "off" and entry.warningSound ~= (C.WARNING_SOUND_OFF or "none"))
 			row:Show()
 		else
 			row:Hide()
@@ -533,6 +537,113 @@ local function setWarningMode(row, mode)
 	refresh()
 end
 
+warningSoundLabel = function(soundKey)
+	local sound = addon.Core.Config.getWarningSoundInfo(soundKey)
+	return sound and (sound.shortLabel or sound.label or sound.key) or "None"
+end
+
+local function warningSoundControlText(soundKey)
+	return "Sound: " .. warningSoundLabel(soundKey)
+end
+
+local function setWarningSoundDropDownText(dropdown, soundKey)
+	if not dropdown then
+		return
+	end
+	local text = warningSoundControlText(soundKey)
+	if UIDropDownMenu_SetText then
+		UIDropDownMenu_SetText(dropdown, text)
+	elseif dropdown.text then
+		dropdown.text:SetText(text)
+	end
+	if UIDropDownMenu_SetSelectedValue then
+		UIDropDownMenu_SetSelectedValue(dropdown, soundKey)
+	end
+	dropdown.selectedSoundKey = soundKey
+end
+
+applyWarningSoundControl = function(row, soundKey, active)
+	setWarningSoundDropDownText(row.soundDropDown, soundKey)
+	if row.soundDropDownText and row.soundDropDownText.SetTextColor then
+		if active then
+			row.soundDropDownText:SetTextColor(1.0, 0.86, 0.38)
+		else
+			row.soundDropDownText:SetTextColor(0.72, 0.72, 0.70)
+		end
+	end
+end
+
+local function setWarningSound(row, soundKey, preview)
+	if not row or not row.entry then
+		return
+	end
+	local selectedSound = addon.Core.Config.setAbilityWarningSound(state.selectedZoneKey, state.selectedEncounterKey, row.entry.key, soundKey)
+	row.entry.warningSound = selectedSound
+	if preview and addon.Runtime.WarningEngine then
+		addon.Runtime.WarningEngine.playWarningSound(selectedSound)
+	end
+	refresh()
+end
+
+local function initializeWarningSoundDropDown(dropdown, level)
+	if level and level ~= 1 then
+		return
+	end
+	local row = dropdown.ownerRow
+	local options = addon.Core.Config.getWarningSoundOptions()
+	for index = 1, #options do
+		local option = options[index]
+		if type(option) == "table" and option.key then
+			local optionKey = option.key
+			local info = UIDropDownMenu_CreateInfo()
+			info.text = option.label or option.shortLabel or optionKey
+			info.value = optionKey
+			info.checked = row and row.entry and row.entry.warningSound == optionKey or false
+			info.func = function()
+				setWarningSound(row, optionKey, true)
+			end
+			UIDropDownMenu_AddButton(info, level)
+		end
+	end
+end
+
+local function setTooltip(frameObject, title, text)
+	frameObject:SetScript("OnEnter", function(self)
+		if GameTooltip then
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(title)
+			if text and GameTooltip.AddLine then
+				GameTooltip:AddLine(text, 0.82, 0.82, 0.72, true)
+			end
+			GameTooltip:Show()
+		end
+	end)
+	frameObject:SetScript("OnLeave", function()
+		if GameTooltip then
+			GameTooltip:Hide()
+		end
+	end)
+end
+
+local function createWarningSoundDropDown(row)
+	local dropdownName = nextName("WarningSoundDropDown")
+	local dropdown = CreateFrame("Frame", dropdownName, row, "UIDropDownMenuTemplate")
+	dropdown.ownerRow = row
+	dropdown:SetPoint("LEFT", row.warnRaidButton, "RIGHT", -14, -2)
+	dropdown.text = _G[dropdownName .. "Text"]
+	row.soundDropDownText = dropdown.text
+	UIDropDownMenu_SetWidth(dropdown, 82)
+	if UIDropDownMenu_SetButtonWidth then
+		UIDropDownMenu_SetButtonWidth(dropdown, 98)
+	end
+	if UIDropDownMenu_JustifyText then
+		UIDropDownMenu_JustifyText(dropdown, "LEFT")
+	end
+	UIDropDownMenu_Initialize(dropdown, initializeWarningSoundDropDown)
+	setTooltip(dropdown, "Warning sound", "Choose and preview the sound played with Personal or Raid warnings.")
+	return dropdown
+end
+
 local function createBossRow(parent, index)
 	local row = createPanel(parent)
 	row:SetHeight(22)
@@ -576,13 +687,13 @@ local function createAbilityRow(parent, index)
 
 	row.name = createLabel(row, "", "GameFontNormalSmall")
 	row.name:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
-	row.name:SetWidth(180)
+	row.name:SetWidth(164)
 
 	row.info = createLabel(row, "", "GameFontNormalSmall")
 	row.info:SetPoint("LEFT", row.name, "RIGHT", 5, 0)
-	row.info:SetWidth(92)
+	row.info:SetWidth(78)
 
-	row.autoButton = createButton(row, "Auto", 40, 18)
+	row.autoButton = createButton(row, "Auto", 36, 18)
 	row.autoButton:SetPoint("LEFT", row.info, "RIGHT", 4, 0)
 	row.autoButton:SetScript("OnClick", function() setDisplayMode(row, "auto") end)
 
@@ -590,21 +701,23 @@ local function createAbilityRow(parent, index)
 	row.showButton:SetPoint("LEFT", row.autoButton, "RIGHT", 1, 0)
 	row.showButton:SetScript("OnClick", function() setDisplayMode(row, "show") end)
 
-	row.hideButton = createButton(row, "Hide", 40, 18)
+	row.hideButton = createButton(row, "Hide", 36, 18)
 	row.hideButton:SetPoint("LEFT", row.showButton, "RIGHT", 1, 0)
 	row.hideButton:SetScript("OnClick", function() setDisplayMode(row, "hide") end)
 
-	row.warnOffButton = createButton(row, "Off", 38, 18)
+	row.warnOffButton = createButton(row, "Off", 32, 18)
 	row.warnOffButton:SetPoint("LEFT", row.hideButton, "RIGHT", 7, 0)
 	row.warnOffButton:SetScript("OnClick", function() setWarningMode(row, "off") end)
 
-	row.warnPersonalButton = createButton(row, "Personal", 60, 18)
+	row.warnPersonalButton = createButton(row, "Personal", 58, 18)
 	row.warnPersonalButton:SetPoint("LEFT", row.warnOffButton, "RIGHT", 1, 0)
 	row.warnPersonalButton:SetScript("OnClick", function() setWarningMode(row, "personal") end)
 
-	row.warnRaidButton = createButton(row, "Raid", 42, 18)
+	row.warnRaidButton = createButton(row, "Raid", 40, 18)
 	row.warnRaidButton:SetPoint("LEFT", row.warnPersonalButton, "RIGHT", 1, 0)
 	row.warnRaidButton:SetScript("OnClick", function() setWarningMode(row, "raid") end)
+
+	row.soundDropDown = createWarningSoundDropDown(row)
 
 	row.forgetButton = createButton(row, "Forget", 52, 18)
 	row.forgetButton:SetPoint("RIGHT", row, "RIGHT", -4, 0)

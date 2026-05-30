@@ -449,6 +449,7 @@ function EncounterState.noteSpellEvent(eventRecord)
 			context.occurrenceCount = (context.occurrenceCount or 0) + 1
 		end
 		context.lastHpPct = eventRecord.hpPct or context.lastHpPct
+		context.lastCombatSeenAtSession = eventRecord.t or Util.now()
 		eventRecord.sourceActorKey = context.actorKey
 		eventRecord.bossKey = context.modelKey
 		eventRecord.bossName = context.name
@@ -519,13 +520,131 @@ function EncounterState.noteRejectedSpell(eventRecord, reason)
 	return pull
 end
 
+local function deathMatchesContext(guid, name, context)
+	if not context then
+		return false
+	end
+	if guid and context.guid then
+		return context.guid == guid
+	end
+	if guid and not context.guid and name then
+		return context.name == name
+	end
+	return not guid and name and context.name == name
+end
+
+local function unitMatchesContext(unit, context)
+	if type(unit) ~= "string" or not context or not UnitExists or not UnitExists(unit) then
+		return false
+	end
+	if context.guid and UnitGUID and UnitGUID(unit) == context.guid then
+		return true
+	end
+	return not context.guid and context.name and UnitName and UnitName(unit) == context.name
+end
+
+local function unitAliveStatus(unit, context)
+	if not unitMatchesContext(unit, context) then
+		return nil
+	end
+	if UnitHealth then
+		return (UnitHealth(unit) or 0) > 0
+	end
+	local hpPct = Util.unitHpPct(unit)
+	if hpPct ~= nil then
+		return hpPct > 0
+	end
+	return true
+end
+
+local function contextLiveUnitStatus(context)
+	local alive = unitAliveStatus(context and context.bossUnitToken, context)
+	if alive ~= nil then
+		return alive, true
+	end
+	alive = unitAliveStatus(context and context.lastUnitToken, context)
+	if alive ~= nil then
+		return alive, true
+	end
+	for index = 1, maxBossUnitFrames() do
+		alive = unitAliveStatus("boss" .. tostring(index), context)
+		if alive ~= nil then
+			return alive, true
+		end
+	end
+	alive = unitAliveStatus("target", context)
+	if alive ~= nil then
+		return alive, true
+	end
+	alive = unitAliveStatus("focus", context)
+	if alive ~= nil then
+		return alive, true
+	end
+	return false, false
+end
+
+local function contextHasLiveUnit(context)
+	local alive, checked = contextLiveUnitStatus(context)
+	return checked and alive
+end
+
+local function contextUnitAffectingCombat(context)
+	if not UnitAffectingCombat then
+		return false
+	end
+	if context and context.bossUnitToken and unitMatchesContext(context.bossUnitToken, context) and UnitAffectingCombat(context.bossUnitToken) then
+		return true
+	end
+	if context and context.lastUnitToken and unitMatchesContext(context.lastUnitToken, context) and UnitAffectingCombat(context.lastUnitToken) then
+		return true
+	end
+	for index = 1, maxBossUnitFrames() do
+		local unit = "boss" .. tostring(index)
+		if unitMatchesContext(unit, context) and UnitAffectingCombat(unit) then
+			return true
+		end
+	end
+	return false
+end
+
+local function shouldDeferUnitDeath(context)
+	if not isBossSignalContext(context) then
+		return false
+	end
+	if contextHasLiveUnit(context) then
+		return true
+	end
+	local lastHpPct = tonumber(context.lastHpPct)
+	return lastHpPct and lastHpPct > 0 and lastHpPct <= C.BOSS_COMPLETION_HP_THRESHOLD
+end
+
+local function deathPendingCanClose(context, now)
+	if contextHasLiveUnit(context) then
+		return false
+	end
+	return not context.deathPendingUntilSession or now >= context.deathPendingUntilSession
+end
+
+local function shouldDeferOutOfCombatEnd(pull, now)
+	for _, context in pairs(pull and pull.activeBossContexts or {}) do
+		if isBossSignalContext(context) and contextHasLiveUnit(context) then
+			local recentCombat = context.lastCombatSeenAtSession
+				and now - context.lastCombatSeenAtSession <= C.BOSS_OUT_OF_COMBAT_HOLD_SECONDS
+			if recentCombat or contextUnitAffectingCombat(context) then
+				return true, context
+			end
+		end
+	end
+	return false, nil
+end
+
 function EncounterState.markUnitDied(guid, name)
 	if not state.current then
 		return
 	end
 
 	for _, candidate in pairs(state.current.bossCandidates) do
-		if (guid and candidate.guid == guid) or (name and candidate.name == name) then
+		if deathMatchesContext(guid, name, candidate) then
 			candidate.dead = true
 			candidate.diedAt = Util.now()
 			addon.Core.Logger.event({
@@ -538,7 +657,28 @@ function EncounterState.markUnitDied(guid, name)
 		end
 	end
 	for _, context in pairs(state.current.bossContexts) do
-		if context.active and ((guid and context.guid == guid) or (name and context.name == name)) then
+		if context.active and deathMatchesContext(guid, name, context) then
+			local now = Util.now()
+			if context.deathPending and deathPendingCanClose(context, now) then
+				context.dead = true
+				closeBossContext(state.current, context, "unit_died")
+				return
+			end
+			if shouldDeferUnitDeath(context) then
+				context.deathPending = true
+				context.deathPendingAtSession = context.deathPendingAtSession or now
+				context.deathPendingUntilSession = context.deathPendingUntilSession or (now + C.BOSS_DEATH_VISUAL_GRACE_SECONDS)
+				addon.Core.Logger.event({
+					kind = "boss_context_death_deferred",
+					pullId = state.current.id,
+					actorKey = context.actorKey,
+					bossKey = context.modelKey,
+					bossName = context.name,
+					guid = Util.compactGuid(guid),
+					lastHpPct = context.lastHpPct,
+				})
+				return
+			end
 			context.dead = true
 			closeBossContext(state.current, context, "unit_died")
 		end
@@ -550,8 +690,27 @@ local function finishPull(reason)
 		return
 	end
 
+	local now = Util.now()
+	if reason == "out_of_combat" then
+		local defer, context = shouldDeferOutOfCombatEnd(state.current, now)
+		if defer then
+			state.pendingEndAt = now + C.COMBAT_END_SETTLE_SECONDS
+			state.pendingEndReason = reason
+			addon.Core.Logger.event({
+				kind = "pull_end_deferred",
+				pullId = state.current.id,
+				reason = reason,
+				bossName = context and context.name,
+				actorKey = context and context.actorKey,
+				lastHpPct = context and context.lastHpPct,
+				lastCombatAgo = context and context.lastCombatSeenAtSession and (now - context.lastCombatSeenAtSession) or nil,
+			})
+			return
+		end
+	end
+
 	state.current.endedAt = Util.wallTime()
-	state.current.endedAtSession = Util.now()
+	state.current.endedAtSession = now
 	state.current.endReason = reason or "unknown"
 	state.current.duration = state.current.endedAtSession - state.current.startedAtSession
 	addon.Core.Logger.info("EncounterState", "Pull ended", {
@@ -576,6 +735,7 @@ local function finishPull(reason)
 	state.active = false
 	state.current = nil
 	state.pendingEndAt = nil
+	state.pendingEndReason = nil
 end
 
 function EncounterState.finish(reason)
@@ -634,6 +794,7 @@ local function onPlayerRegenEnabled()
 	if state.active then
 		sampleBossUnits("boss_unit_combat_end")
 		state.pendingEndAt = Util.now() + C.COMBAT_END_SETTLE_SECONDS
+		state.pendingEndReason = "out_of_combat"
 	end
 end
 
@@ -661,20 +822,25 @@ local function tick()
 		sampleUnit("focus", "focus_tick")
 		local contextsToClose = nil
 		for _, context in pairs(state.current.activeBossContexts) do
-			if context.lastSeenAtSession and now - context.lastSeenAtSession >= C.BOSS_CONTEXT_IDLE_SECONDS then
+			if context.deathPending and deathPendingCanClose(context, now) then
 				contextsToClose = contextsToClose or {}
-				contextsToClose[#contextsToClose + 1] = context
+				contextsToClose[#contextsToClose + 1] = { context = context, reason = "unit_died" }
+			elseif context.lastSeenAtSession and now - context.lastSeenAtSession >= C.BOSS_CONTEXT_IDLE_SECONDS then
+				contextsToClose = contextsToClose or {}
+				contextsToClose[#contextsToClose + 1] = { context = context, reason = "idle" }
 			end
 		end
 		if contextsToClose then
 			for index = 1, #contextsToClose do
-				closeBossContext(state.current, contextsToClose[index], "idle")
+				local entry = contextsToClose[index]
+				closeBossContext(state.current, entry.context, entry.reason)
 			end
 		end
 		if state.pendingEndAt and now >= state.pendingEndAt then
-			finishPull("out_of_combat")
+			finishPull(state.pendingEndReason or "out_of_combat")
 		elseif not state.pendingEndAt and bossUnitCount == 0 and UnitAffectingCombat and not UnitAffectingCombat("player") then
 			state.pendingEndAt = now + C.COMBAT_END_SETTLE_SECONDS
+			state.pendingEndReason = "out_of_combat"
 		end
 	end
 end

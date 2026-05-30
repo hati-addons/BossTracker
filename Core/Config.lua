@@ -17,6 +17,8 @@ local WARNING_OFF = "off"
 local WARNING_PERSONAL = "personal"
 local WARNING_RAID = "raid"
 
+local warningSoundByKey
+
 local function clampNumber(value, fallback, minimum, maximum)
 	value = tonumber(value) or fallback
 	if value < minimum then
@@ -40,6 +42,28 @@ local function normalizeWarningMode(mode)
 		return mode
 	end
 	return WARNING_OFF
+end
+
+local function ensureWarningSoundIndex()
+	if warningSoundByKey then
+		return warningSoundByKey
+	end
+	warningSoundByKey = {}
+	for index = 1, #(C.WARNING_SOUND_OPTIONS or {}) do
+		local option = C.WARNING_SOUND_OPTIONS[index]
+		if type(option) == "table" and type(option.key) == "string" then
+			warningSoundByKey[option.key] = option
+		end
+	end
+	return warningSoundByKey
+end
+
+local function normalizeWarningSound(soundKey)
+	local options = ensureWarningSoundIndex()
+	if type(soundKey) == "string" and options[soundKey] then
+		return soundKey
+	end
+	return C.WARNING_SOUND_OFF or "none"
 end
 
 local function ensureOverrides()
@@ -223,6 +247,30 @@ function Config.setAbilityWarningMode(zoneKey, encounterKey, abilityKey, mode)
 	override.warning = normalized ~= WARNING_OFF and normalized or nil
 	pruneAbilityOverride(zoneKey, encounterKey, abilityKey)
 	return normalized
+end
+
+function Config.getAbilityWarningSound(zoneKey, encounterKey, abilityKey)
+	local override = abilityOverride(zoneKey, encounterKey, abilityKey, false)
+	return normalizeWarningSound(override and override.warningSound)
+end
+
+function Config.setAbilityWarningSound(zoneKey, encounterKey, abilityKey, soundKey)
+	local override = abilityOverride(zoneKey, encounterKey, abilityKey, true)
+	local normalized = normalizeWarningSound(soundKey)
+	if not override then
+		return C.WARNING_SOUND_OFF or "none"
+	end
+	override.warningSound = normalized ~= (C.WARNING_SOUND_OFF or "none") and normalized or nil
+	pruneAbilityOverride(zoneKey, encounterKey, abilityKey)
+	return normalized
+end
+
+function Config.getWarningSoundInfo(soundKey)
+	return ensureWarningSoundIndex()[normalizeWarningSound(soundKey)]
+end
+
+function Config.getWarningSoundOptions()
+	return C.WARNING_SOUND_OPTIONS or {}
 end
 
 function Config.clearEncounterOverrides(zoneKey, encounterKey)
