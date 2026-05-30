@@ -73,7 +73,7 @@ Current architecture:
 
 # Documentation Index
 
-- `README.md`: current status, addon goal, and development boundaries.
+- `README.md`: player-facing addon overview, installation, basic usage, commands, and troubleshooting.
 - `docs/design-notes.md`: architecture notes, learning boundaries, pattern references, and observed Ascension encounter behavior.
 - `docs/simulator-test-system.md`: target architecture, workflow, and invariants for the AzerothCore-based encounter simulator.
 - `docs/test-runbook.md`: manual alpha testing workflow and slash commands.

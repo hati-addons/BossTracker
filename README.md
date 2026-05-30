@@ -1,97 +1,120 @@
 # BossTracker
 
-BossTracker is a planned boss ability timer addon for Project Ascension Bronzebeard on the WotLK 3.3.5a client (`Interface: 30300`).
+BossTracker is a boss ability timer addon for Project Ascension Bronzebeard.
 
-The addon should eventually learn relevant boss abilities from real raid and dungeon play, predict the next likely casts, and display them in a clean chronological timer list. The target audience is raid players who want better timing information without being asked to understand the underlying technical model.
+It watches dungeon and raid encounters, learns boss ability timings from real fights, and shows the next expected abilities in a compact timer window. The goal is simple: help you see what is likely coming next without filling your screen with clutter.
 
-## Current Status
+BossTracker is made for players who want cleaner timing information for interrupts, defensive cooldowns, movement, and raid coordination.
 
-This repository contains an alpha implementation intended for real dungeon and raid test runs.
+## What It Does
 
-Implemented now:
+- Shows upcoming boss abilities as sorted timer bars.
+- Learns boss timers while you play instead of requiring a prebuilt database.
+- Keeps learning after wipes, partial pulls, and future encounter changes.
+- Filters out routine spam such as very fast repeated filler casts.
+- Supports dungeons, raids, single bosses, council fights, and late-spawning boss units.
+- Lets you hide, show, highlight, or warn for individual learned abilities.
+- Can send a personal or raid warning shortly before a configured ability is ready.
 
-- Bounded SavedVariables diagnostics in `BossTrackerDB`.
-- Error isolation so repeated module failures disable only the failing module.
-- A restart warning when the running client has not loaded newly added addon files.
-- Combat-log capture for hostile NPC spell evidence.
-- A phase-aware encounter learning pipeline split into occurrence building, encounter modeling, phase segmentation, rule learning, relevance scoring, and prediction.
-- Boss-frame sampling through `boss1..MAX_BOSS_FRAMES` for stronger encounter identity and HP evidence, with combat-log, target, and focus fallbacks.
-- Boss tracking does not require the player to target the boss; boss-frame evidence stays attached to the encounter context even if target changes.
-- Coarse combat-window tracking with separate boss contexts inside a long fight.
-- A conservative ability learner scoped per boss source, including late boss pulls and simultaneous bosses.
-- Council-style boss groups can be persisted as one encounter with multiple boss actors.
-- Pull-wide boss-context qualification before durable learning, with boss-frame actors preferred and nearby trash kept as diagnostics rather than timer data.
-- Non-boss-frame fallback learning requires kill or low-HP confirmation, so long trash casters do not become boss models just because they cast many spells.
-- Add-spawn summon spells from non-boss actors can be associated with one active boss-frame owner as encounter mechanics, while keeping the original add source for display and diagnostics.
-- Boss HP is evidence, not a hard learning gate. A qualified boss attempt can update timer estimates even after an early wipe or reset.
-- Timer display starts from the first usable estimate; low-confidence provisional timers are allowed and refined by later pulls.
-- During a long first pull, repeated casts from a qualified active boss can create provisional same-pull timer bars before the encounter ends.
-- Cast lifecycle and channel events are deduplicated so cast duration, aura duration, and tick spacing are not learned as recast timing.
-- HP phase transitions and repeated one-per-phase transition spells are kept out of normal cooldown models when the evidence supports a phase rule.
-- HP percentage rules require multiple observations; early one-per-pull casts prefer time or phase timing instead of showing HP bars.
-- Displayed boss mechanics are merged by visible spell name when Ascension emits separate technical spell ids for cast, effect, and aura events.
-- Learned timers stay hidden for target-only boss contexts until that boss has current combat evidence.
-- Automatic suppression for sub-10s repeated abilities and aura-only same-HP repeat noise.
-- A searchable configuration UI for global settings, learned boss cleanup, ability display overrides, and personal or raid warning modes.
-- Raid warnings use the available WotLK/Ascension raid leader and officer APIs, with personal warnings as the fallback.
-- A compact timer frame for learned time-based, one-time, and HP-linked candidates.
-- Timer UI polling runs from an always-active ticker, so a hidden timer frame can open itself when predictions appear.
-- The visible timer frame can be moved by dragging it and resized from the lower-right corner; slash commands are only fallback controls.
-- A timer preview mode for positioning and checking the layout without an active boss.
-- Slash commands for alpha testing and emergency UI hiding.
+BossTracker improves with evidence. The first pull of a boss may show little or nothing. Once the addon has seen an ability repeat or has enough useful timing evidence, timers can appear during the fight and on later pulls.
 
-Not implemented yet:
+## Installation
 
-- Audio countdowns.
-- Mature drift correction and broader player-facing relevance controls.
+1. Download the release ZIP.
+2. Extract it into your WoW `Interface\AddOns` folder.
+3. Make sure the folder is named `BossTracker`.
+4. Restart the WoW client.
+5. On the character screen, open AddOns and enable BossTracker.
 
-## Development Verification
+If you replaced an older version while WoW was open, restart the full client. A normal `/reload` may not load newly added addon files.
 
-Fast checks:
+## Basic Use
 
-- `luac -p Core/*.lua Capture/*.lua Learning/*.lua Runtime/*.lua UI/*.lua Init.lua`
-- `lua tests/replay_scenarios.lua`
-- `lua tests/cpp_module_replay.lua`
+BossTracker works automatically once enabled.
 
-The replay scenarios run the learning pipeline headlessly against AzerothCore-inspired patterns: channel lifecycle dedupe, HP phase rules, repeated transition spells, council grouping, and encounter-owned add mechanics.
+During a boss fight, the timer window appears when BossTracker has a useful prediction. Between fights, use preview mode to position and resize the window:
 
-The C++ module simulator accepts one or more AzerothCore `boss_*.cpp` files, extracts a neutral encounter model, and simulates several client-visible variants against the same addon learning pipeline:
+- Type `/bt preview`.
+- Drag the timer window to move it.
+- Drag the lower-right corner to resize it.
+- Type `/bt preview` again when you are done.
 
-- `lua tests/cpp_module_replay.lua /home/two/projects/azerothcore-wotlk/src/server/scripts/EasternKingdoms/BlackrockMountain/BlackrockSpire/boss_warmaster_voone.cpp`
+The window can stay hidden during brand-new encounters until the addon has learned enough. This is normal.
 
-Without arguments it runs a representative default set. For broad coverage across all local AzerothCore boss scripts:
+## Configuration
 
-- `lua tests/cpp_module_replay.lua --all --quiet`
+Open the configuration with:
 
-See `docs/simulator-test-system.md` for the simulator architecture and invariants.
+- `/bt config`
 
-## Release Packaging
+The configuration lets you:
+
+- Change global settings such as the minimum timer delay shown.
+- Search learned bosses by instance or boss name.
+- Delete a learned boss if bad data was collected.
+- Search a selected boss's abilities.
+- Toggle whether each ability is shown in the timer window.
+- Set an ability to be highlighted.
+- Enable a 5-second personal warning.
+- Enable a 5-second raid warning if you are allowed to send one.
+
+Raid warning falls back to a personal warning if raid warning is not available.
+
+## Useful Commands
+
+- `/bt` or `/bt help` - Show the command list.
+- `/bt config` - Open configuration.
+- `/bt preview` - Toggle sample timer bars for positioning.
+- `/bt status` - Show whether BossTracker, timers, debug logging, and preview are enabled.
+- `/bt panic` - Hide timer visuals and warnings while learning continues.
+- `/bt resume` - Show timers and warnings again.
+- `/bt timers off` - Disable timer display while learning continues.
+- `/bt timers on` - Enable timer display again.
+- `/bt resetui` - Reset the timer window position.
+- `/bt unlock` and `/bt lock` - Allow or prevent moving and resizing the timer window.
+- `/bt clearlearned` - Clear learned boss data and ability settings.
+
+Most players only need `/bt config`, `/bt preview`, and `/bt panic`.
+
+## Learning Tips
+
+- Fight bosses normally. You do not need to target the boss all the time.
+- If a boss is wiped at low health, the pull can still help BossTracker learn.
+- If a timer looks wrong after a patch or unusual pull, let the addon observe more attempts.
+- If bad data was clearly learned from trash or a broken run, delete that boss in `/bt config`.
+- If everything looks contaminated, use `/bt clearlearned` and start fresh.
+
+## Troubleshooting
+
+No timer window appears:
+
+- Use `/bt preview` to confirm the window is visible and positioned correctly.
+- Make sure timers are enabled with `/bt timers on`.
+- The boss may still be too new for BossTracker to have a useful prediction.
+
+The window is in a bad position:
+
+- Use `/bt preview`, drag it, and resize it from the lower-right corner.
+- If needed, use `/bt resetui`.
+
+The addon says a full restart is required:
+
+- Exit WoW completely and start it again. `/reload` is not enough for that case.
+
+The UI is distracting during a fight:
+
+- Use `/bt panic`. BossTracker keeps learning, but timer visuals and warnings are hidden until `/bt resume`.
+
+## Notes
+
+BossTracker learns from what your client can see. Some Ascension encounters may behave differently from public boss scripts or guides, and custom mechanics may need several pulls before the addon has enough evidence.
+
+The addon does not play audio countdowns yet.
+
+## Maintainer Notes
+
+Development notes, simulator details, and manual testing workflow live in `docs/`.
 
 Build the WoW-installable ZIP with:
 
 - `bash scripts/package-addon.sh`
-
-The script copies only `BossTracker.toc` and files listed in the TOC into a top-level `BossTracker/` folder. Development files such as tests, docs, GitHub workflow metadata, and repository notes are intentionally excluded.
-
-GitHub releases are built by `.github/workflows/release-addon.yml` when the TOC version increases on `main` or `master`, or manually through `workflow_dispatch` with `force_release`.
-
-## Alpha Testing
-
-The addon cannot write files directly. After a test run, use `/reload` or log out normally so the client writes `BossTrackerDB` and `BossTrackerCharDB` to disk.
-
-Useful commands:
-
-- `/bt` or `/bt help`: show available commands.
-- `/bt config`: open global settings and learned boss/ability configuration.
-- `/bt status`: show current addon state.
-- `/bt unlock`: show the timer frame for fallback positioning when no timer is active.
-- `/bt preview`: toggle sample timer bars.
-- `/bt scale 1.0`: fallback scale command. The visible frame can be resized directly from its lower-right corner.
-- `/bt panic`: hide the timer UI and configured warnings while capture continues.
-- `/bt resume`: restore the timer UI.
-- `/bt timers off`: disable timer display while capture continues.
-- `/bt debug on`: enable SavedVariables diagnostics.
-- `/bt clearlogs`: clear stored debug runs after they are no longer needed.
-- `/bt clearlearned`: clear learned boss models and related ability overrides if alpha data becomes contaminated.
-
-See `docs/test-runbook.md` for the test workflow.
