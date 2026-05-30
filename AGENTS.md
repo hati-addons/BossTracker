@@ -75,6 +75,7 @@ Current architecture:
 
 - `README.md`: current status, addon goal, and development boundaries.
 - `docs/design-notes.md`: architecture notes, learning boundaries, pattern references, and observed Ascension encounter behavior.
+- `docs/simulator-test-system.md`: target architecture, workflow, and invariants for the AzerothCore-based encounter simulator.
 - `docs/test-runbook.md`: manual alpha testing workflow and slash commands.
 - `tests/replay_scenarios.lua`: headless Lua replay tests for core learning and prediction scenarios.
 - `tests/cpp_module_replay.lua`: AzerothCore C++ boss-script adapter that simulates common scheduler, HP-gate, repeat, and summon patterns against the addon replay harness.

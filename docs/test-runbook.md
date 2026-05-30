@@ -64,8 +64,9 @@ Before a build is handed off for manual dungeon testing, run:
 
 The replay test covers channel lifecycle dedupe, HP phase rules, repeated transition spells, council grouping, and encounter-owned add mechanics.
 
-The C++ replay adapter can test a focused AzerothCore boss script:
+The C++ replay adapter is now an encounter simulator. It extracts a neutral model from AzerothCore boss scripts and runs several deterministic client-visible variants through BossTracker:
 
 - `lua tests/cpp_module_replay.lua /home/two/projects/azerothcore-wotlk/src/server/scripts/EasternKingdoms/Deadmines/boss_mr_smite.cpp`
+- `lua tests/cpp_module_replay.lua --all --quiet`
 
-It is not a server emulator. It extracts common script shapes such as `ScheduleEvent`, `RescheduleEvent`, scheduler lambdas, `Repeat`, HP checks, direct casts, and summons, then feeds simulated combat-log events through BossTracker's real capture, learning, model, and prediction modules. Unsupported or purely custom scripts fall back to their declared spell symbols so the addon can still be smoke-tested against the module.
+It is not a server emulator. It extracts common script shapes such as `ScheduleEvent`, `RescheduleEvent`, scheduler lambdas, `Repeat`, HP checks, direct casts, and summons, then feeds simulated combat-log events through BossTracker's real capture, learning, model, and prediction modules. Unsupported or purely custom scripts fall back to declared spell symbols or a generic scripted ability so the addon can still be smoke-tested against the module.

@@ -55,11 +55,15 @@ Fast checks:
 
 The replay scenarios run the learning pipeline headlessly against AzerothCore-inspired patterns: channel lifecycle dedupe, HP phase rules, repeated transition spells, council grouping, and encounter-owned add mechanics.
 
-The C++ module replay adapter accepts one or more AzerothCore `boss_*.cpp` files and simulates their common scheduler, repeat, HP-gate, and summon patterns against the same addon learning pipeline:
+The C++ module simulator accepts one or more AzerothCore `boss_*.cpp` files, extracts a neutral encounter model, and simulates several client-visible variants against the same addon learning pipeline:
 
 - `lua tests/cpp_module_replay.lua /home/two/projects/azerothcore-wotlk/src/server/scripts/EasternKingdoms/BlackrockMountain/BlackrockSpire/boss_warmaster_voone.cpp`
 
-Without arguments it runs a representative default set. For broad parser coverage, pass the sorted boss-script list from `/home/two/projects/azerothcore-wotlk/src/server/scripts`.
+Without arguments it runs a representative default set. For broad coverage across all local AzerothCore boss scripts:
+
+- `lua tests/cpp_module_replay.lua --all --quiet`
+
+See `docs/simulator-test-system.md` for the simulator architecture and invariants.
 
 ## Release Packaging
 
