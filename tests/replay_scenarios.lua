@@ -262,6 +262,58 @@ local function scenarioLegacyUncountedSpamGapSuppressed()
 	Harness.assertTrue(reason == "uncounted_activation_gap_below_model_floor", "Legacy spam models with many uncounted gaps should be suppressed")
 end
 
+local function scenarioAuraStackStateBuffSuppressed()
+	Harness.resetState("Replay Stack State")
+	local boss = "State Dragon"
+	local guid = Harness.makeGuid(boss, 652)
+	Harness.emitSpell({
+		t = 20,
+		sourceName = boss,
+		sourceGUID = guid,
+		destGUID = guid,
+		spellName = "Stress",
+		eventType = "SPELL_AURA_APPLIED",
+		hp = 75,
+	})
+	for index = 1, 12 do
+		Harness.emitSpell({
+			t = 20 + index,
+			sourceName = boss,
+			sourceGUID = guid,
+			destGUID = guid,
+			spellName = "Stress",
+			eventType = "SPELL_AURA_APPLIED_DOSE",
+			hp = 75,
+		})
+	end
+	Harness.finishPull(60, "unit_died")
+
+	local actorKey = addon.Core.Util.bossKey(boss, guid)
+	local ability = Harness.ability(Harness.encounter(actorKey), actorKey, "Stress")
+	Harness.assertTrue(ability ~= nil, "Stack-state buff should remain available for diagnostics")
+	Harness.assertTrue(ability.autoSuppressed == true, "Stack-state buff must not become a displayed timer")
+	Harness.assertTrue(ability.suppressionReason == "aura_stack_state_update", "Suppression should explain aura stack state noise")
+end
+
+local function scenarioSpellIconFallsBackToSpellInfo()
+	local previousGetSpellTexture = GetSpellTexture
+	local previousGetSpellInfo = GetSpellInfo
+	GetSpellTexture = function()
+		return nil
+	end
+	GetSpellInfo = function(spellId)
+		if spellId == 12345 then
+			return "Icon Test", nil, "Interface\\Icons\\Spell_Test"
+		end
+		return nil
+	end
+
+	local texture = addon.Core.Util.spellIconTexture(nil, "spell:12345")
+	GetSpellTexture = previousGetSpellTexture
+	GetSpellInfo = previousGetSpellInfo
+	Harness.assertTrue(texture == "Interface\\Icons\\Spell_Test", "Spell icons should fall back to GetSpellInfo icon paths")
+end
+
 local function scenarioTenSecondIntervalAllowed()
 	Harness.resetState("Replay Relevant Timer")
 	local boss = "Timer Commander"
@@ -964,6 +1016,8 @@ local scenarios = {
 	scenarioInterruptedSpamDoesNotBecomeLongTimer,
 	scenarioPlayerInterruptLearnsInterruptedBossSpell,
 	scenarioLegacyUncountedSpamGapSuppressed,
+	scenarioAuraStackStateBuffSuppressed,
+	scenarioSpellIconFallsBackToSpellInfo,
 	scenarioTenSecondIntervalAllowed,
 	scenarioConfigMinimumDelayRefreshesRules,
 	scenarioKnownRoutineSpellSuppressesLiveProvisional,

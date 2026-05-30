@@ -4,6 +4,7 @@
 
 local addon = _G.BossTracker
 local C = addon.Core.Constants
+local Util = addon.Core.Util
 
 local ConfigFrame = {}
 addon.UI.ConfigFrame = ConfigFrame
@@ -344,7 +345,7 @@ local function setSegmentButtonActive(button, active)
 end
 
 local function applyAbilityIcon(row, ability)
-	local texture = ability and ability.spellId and GetSpellTexture and GetSpellTexture(ability.spellId) or nil
+	local texture = ability and Util.spellIconTexture(ability.spellId, ability.spellKey) or nil
 	row.name:ClearAllPoints()
 	if texture then
 		row.icon:SetTexture(texture)
@@ -664,6 +665,69 @@ local function hideGameTooltip()
 	end
 end
 
+local function spellLinkForAbility(ability)
+	if type(ability) ~= "table" then
+		return nil
+	end
+
+	local spellId = tonumber(ability.spellId)
+	if not spellId or spellId <= 0 then
+		return nil
+	end
+
+	if GetSpellLink then
+		local ok, link = pcall(GetSpellLink, spellId)
+		if ok and type(link) == "string" and link ~= "" then
+			return link
+		end
+	end
+
+	local spellName = ability.spellName or abilityDisplayName(ability) or ("Spell " .. tostring(spellId))
+	return "|cff71d5ff|Hspell:" .. tostring(spellId) .. "|h[" .. tostring(spellName) .. "]|h|r"
+end
+
+local function activeChatEditBox()
+	if ChatEdit_GetActiveWindow then
+		local editBox = ChatEdit_GetActiveWindow()
+		if editBox and editBox.IsShown and editBox:IsShown() then
+			return editBox
+		end
+	end
+	if ChatFrameEditBox and ChatFrameEditBox.IsShown and ChatFrameEditBox:IsShown() then
+		return ChatFrameEditBox
+	end
+	if ChatFrame1EditBox and ChatFrame1EditBox.IsVisible and ChatFrame1EditBox:IsVisible() then
+		return ChatFrame1EditBox
+	end
+	return nil
+end
+
+local function insertChatLink(link)
+	if type(link) ~= "string" or link == "" then
+		return false
+	end
+	if ChatEdit_InsertLink then
+		local ok, inserted = pcall(ChatEdit_InsertLink, link)
+		if ok and inserted then
+			return true
+		end
+	end
+
+	local editBox = activeChatEditBox()
+	if editBox and editBox.Insert then
+		editBox:Insert(link)
+		return true
+	end
+	return false
+end
+
+local function insertAbilitySpellLink(entry)
+	if not entry or not entry.ability then
+		return false
+	end
+	return insertChatLink(spellLinkForAbility(entry.ability))
+end
+
 local function createWarningSoundDropDown(row)
 	local dropdownName = nextName("WarningSoundDropDown")
 	local dropdown = CreateFrame("Frame", dropdownName, row, "UIDropDownMenuTemplate")
@@ -722,6 +786,11 @@ local function createAbilityRow(parent, index)
 		showAbilitySpellTooltip(self, self.entry)
 	end)
 	row:SetScript("OnLeave", hideGameTooltip)
+	row:SetScript("OnMouseUp", function(self, button)
+		if button == "LeftButton" and IsShiftKeyDown and IsShiftKeyDown() then
+			insertAbilitySpellLink(self.entry)
+		end
+	end)
 
 	row.icon = row:CreateTexture(nil, "ARTWORK")
 	row.icon:SetWidth(18)

@@ -139,6 +139,36 @@ function Util.timerAbilityKey(spellId, spellName)
 	return Util.abilityKey(spellId, spellName)
 end
 
+function Util.spellIdFromKey(spellKey)
+	if type(spellKey) ~= "string" then
+		return nil
+	end
+	local spellId = string.match(spellKey, "^spell:(%d+)$")
+	return spellId and tonumber(spellId) or nil
+end
+
+function Util.spellIconTexture(spellId, spellKey)
+	local numericSpellId = tonumber(spellId) or Util.spellIdFromKey(spellKey)
+	if not numericSpellId or numericSpellId <= 0 then
+		return nil
+	end
+
+	if GetSpellTexture then
+		local ok, texture = pcall(GetSpellTexture, numericSpellId)
+		if ok and texture then
+			return texture
+		end
+	end
+
+	if GetSpellInfo then
+		local ok, _, _, texture = pcall(GetSpellInfo, numericSpellId)
+		if ok and texture then
+			return texture
+		end
+	end
+	return nil
+end
+
 function Util.actorKey(name, guid)
 	if type(guid) == "string" and guid ~= "" then
 		return "guid:" .. guid

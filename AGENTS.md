@@ -25,6 +25,7 @@
 - Suppress repeated abilities with an observed interval below 10 seconds before display. Keep their diagnostic evidence, but treat them as standard repertoire rather than useful timer bars.
 - Track raw activation gaps separately from timer-quality intervals. Gaps below the timer model floor still prove routine spam and must prevent counterspell/lockout gaps from looking like real cooldowns.
 - Suppress pure aura-only repeats at nearly the same HP as likely passive, consequence, or phase-state noise unless later architecture adds a stronger relevance signal.
+- Suppress aura stack state updates where one aura application is followed by many `SPELL_AURA_APPLIED_DOSE` or `SPELL_AURA_REMOVED_DOSE` events and no timer interval. These are state/stack changes, not player-actionable boss timers.
 - For dynamic add encounters, keep group encounter keys unique by boss model key and allow the primary boss to reuse learned group variants that contain the same actor when no exact group or single-actor model exists. Do not use that fallback for non-primary adds.
 - Apply routine suppression before live provisional timer display as well as after pull-end model promotion; otherwise repeated filler casts can appear during the first live boss pull.
 - Use learned routine evidence across confirmed bosses to suppress live provisional timers for shared filler spells. A spell can look long on its first two casts in a new pull and only reveal its short routine cadence later.
@@ -42,6 +43,7 @@
 - The addon is unreleased; schema changes may reset old alpha learned data when that is cleaner than preserving contaminated models.
 - For release-relevant bug fixes and features, update the addon version consistently in `BossTracker.toc`, `Core/Constants.lua`, and `Core/Namespace.lua` using patch increments for fixes and minor increments for user-facing features.
 - During live addon iteration, `/reload` can leave the running client with the old `.toc` file list. If a newly added file is missing, warn the player in chat to restart the client and disable only the affected feature for that session.
+- Resolve spell icons through `GetSpellTexture(spellId)` first and `select(3, GetSpellInfo(spellId))` as fallback. Ascension custom spells may expose usable icons through `GetSpellInfo` when direct texture lookup fails.
 - Combat-log parser tests must exercise `Capture.CombatLog.handleEvent`, not only helper normalization or direct learner records. A parser regression once learned subevent names such as `SPELL_HEAL` as ability names because tests bypassed the real event handler.
 - Before reporting completion for code changes, at minimum run `luac -p Core/*.lua Capture/*.lua Learning/*.lua Runtime/*.lua UI/*.lua Init.lua` when Lua syntax tools are available.
 - For learning or prediction changes, also run `lua tests/replay_scenarios.lua` when local Lua is available.

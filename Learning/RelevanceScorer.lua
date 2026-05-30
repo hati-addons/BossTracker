@@ -127,6 +127,34 @@ local function isAuraOnlyAbility(ability)
 	return sawAura
 end
 
+local function auraStackStateReason(ability)
+	if type(ability) ~= "table" or ability.encounterAssociated then
+		return nil
+	end
+
+	local events = ability.events
+	if type(events) ~= "table" then
+		return nil
+	end
+
+	local doseCount = (tonumber(events.SPELL_AURA_APPLIED_DOSE) or 0)
+		+ (tonumber(events.SPELL_AURA_REMOVED_DOSE) or 0)
+	local auraStartCount = (tonumber(events.SPELL_AURA_APPLIED) or 0)
+		+ (tonumber(events.SPELL_AURA_REFRESH) or 0)
+	local activationCount = tonumber(ability.activationCount) or 0
+	local pullSeenCount = tonumber(ability.pullSeenCount) or 0
+	local intervalSamples = tonumber(ability.intervalSamples) or 0
+
+	if doseCount >= 3
+		and auraStartCount > 0
+		and intervalSamples == 0
+		and activationCount <= math.max(1, pullSeenCount)
+		and doseCount >= auraStartCount * 4 then
+		return "aura_stack_state_update"
+	end
+	return nil
+end
+
 local function auraOnlySameHpRepeatReason(ability)
 	if type(ability) ~= "table"
 		or ability.encounterAssociated
@@ -200,6 +228,7 @@ function RelevanceScorer.routineReasonForAbility(ability)
 		return nil
 	end
 	return frequentShortIntervalReason(ability)
+		or auraStackStateReason(ability)
 		or auraOnlySameHpRepeatReason(ability)
 end
 

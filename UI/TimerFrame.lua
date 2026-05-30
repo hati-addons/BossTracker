@@ -26,6 +26,7 @@ local GRIP_SIZE = 16
 local MIN_SCALE = 0.70
 local MAX_SCALE = 1.60
 local SCALE_STEP = 0.05
+local QUESTION_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 local minFrameHeight
 local maxFrameHeight
@@ -197,7 +198,7 @@ local function createRow(parent, index)
 	row.icon:SetWidth(16)
 	row.icon:SetHeight(16)
 	row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
-	row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+	row.icon:SetTexture(QUESTION_ICON)
 
 	row.bar = CreateFrame("StatusBar", nil, row)
 	row.bar:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
@@ -452,11 +453,7 @@ function updateRows()
 				row.bar:SetValue(value)
 			end
 
-			if timer.spellId and GetSpellTexture then
-				row.icon:SetTexture(GetSpellTexture(timer.spellId) or "Interface\\Icons\\INV_Misc_QuestionMark")
-			else
-				row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-			end
+			row.icon:SetTexture(Util.spellIconTexture(timer.spellId, timer.spellKey) or QUESTION_ICON)
 			row.name:SetText(shortName(timerDisplayName(timer)))
 			row.time:SetText(formatRemaining(timer))
 			row:Show()
