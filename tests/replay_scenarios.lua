@@ -542,8 +542,351 @@ local function scenarioSavedVariablesCleanCombatLogSubeventAbilities()
 	Harness.assertTrue(addon.db.config.overrides.zones.cleanup_zone.encounters.cleanup_boss.abilities.good ~= nil, "SavedVariables cleanup should preserve overrides for real abilities")
 end
 
+local manualLearnedData
+
+local function scenarioSavedVariablesRestoreFromCharacterBackup()
+	Harness.resetState("Replay SavedVariables Backup")
+	local boss = "Backup Keeper"
+	local guid = Harness.makeGuid(boss, 1501)
+	local spellName = "Backup Pulse"
+	local encounterKey = addon.Core.Util.bossKey(boss, guid)
+	local spellKey = addon.Core.Util.timerAbilityKey(nil, spellName)
+	local abilityKey = addon.Core.ModelStore.abilityModelKey(encounterKey, spellKey)
+
+	Harness.emitSpell({ t = 0, sourceName = boss, sourceGUID = guid, spellName = spellName, hp = 100 })
+	Harness.emitSpell({ t = 20, sourceName = boss, sourceGUID = guid, spellName = spellName, hp = 82 })
+	Harness.finishPull(45)
+
+	local zoneKey = addon.Core.Util.zoneInfo().key
+	Harness.assertTrue(addon.db.learned.zones[zoneKey].encounters[encounterKey] ~= nil, "Backup fixture should learn an encounter")
+	addon.Core.Config.setAbilityDisplayMode(zoneKey, encounterKey, abilityKey, "hide")
+	addon.Core.Config.setWarningLeadTime(9)
+	addon.db.config.timersEnabled = false
+	addon.Core.SavedVariables.syncLearnedBackup(true)
+	local backup = _G.BossTrackerCharDB.learnedBackup
+	Harness.assertTrue(backup ~= nil and backup.learned ~= nil, "Character backup should be written after learning")
+	Harness.assertTrue(backup.overrides.zones[zoneKey].encounters[encounterKey].abilities[abilityKey].display == "hide", "Character backup should include ability overrides")
+	Harness.assertTrue(backup.config.warningLeadTime == 9 and backup.config.timersEnabled == false, "Character backup should include player-facing timer settings")
+
+	_G.BossTrackerDB = {}
+	_G.BossTrackerCharDB = {
+		learnedBackup = backup,
+	}
+	addon.Core.SavedVariables.init()
+
+	Harness.assertTrue(addon.db.learned.zones[zoneKey].encounters[encounterKey] ~= nil, "Fresh account DB should restore learned data from character backup")
+	Harness.assertTrue(addon.db.config.overrides.zones[zoneKey].encounters[encounterKey].abilities[abilityKey].display == "hide", "Fresh account DB should restore ability overrides from character backup")
+	Harness.assertTrue(addon.db.config.warningLeadTime == 9 and addon.db.config.timersEnabled == false, "Fresh account DB should restore player-facing timer settings from character backup")
+	Harness.assertTrue(addon.db.migrations[#addon.db.migrations].reason == "Restored learned data from per-character backup after account SavedVariables were empty.", "Restore should leave a migration breadcrumb")
+end
+
+local function scenarioSavedVariablesLateCharacterBackupRestoresAfterEmptyCharacterLogin()
+	Harness.resetState("Replay SavedVariables Late Backup")
+	local C = addon.Core.Constants
+	local zoneKey = "late_backup_zone"
+	local backupLearned, backupAbilityKey = manualLearnedData(zoneKey, "late_backup_boss", "Late Backup Pulse")
+
+	_G.BossTrackerDB = {}
+	_G.BossTrackerCharDB = {}
+	addon.Core.SavedVariables.init()
+	Harness.assertTrue(next(addon.db.learned.zones) == nil, "First login without a backup should leave learned data empty")
+	Harness.assertTrue(addon.db.learnedMeta and addon.db.learnedMeta.resetAt ~= nil, "First login without a backup should record a schema reset, not a manual clear")
+	Harness.assertTrue(addon.db.learnedMeta.clearedAt == nil, "First login without a backup must not create a manual clear tombstone")
+
+	local emptyAccountDb = _G.BossTrackerDB
+	_G.BossTrackerDB = emptyAccountDb
+	_G.BossTrackerCharDB = {
+		learnedBackup = {
+			backupSchemaVersion = C.LEARNED_BACKUP_SCHEMA_VERSION,
+			dataSchemaVersion = C.SCHEMA_VERSION,
+			dataId = "late-backup-data",
+			revision = 4,
+			sourceCreatedAt = 100,
+			sourceUpdatedAt = 400,
+			updatedAt = 400,
+			learned = backupLearned,
+			config = {
+				warningLeadTime = 7,
+				overrides = {
+					zones = {
+						[zoneKey] = {
+							encounters = {
+								late_backup_boss = {
+									abilities = {
+										[backupAbilityKey] = {
+											warning = "raid",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	addon.Core.SavedVariables.init()
+
+	Harness.assertTrue(addon.db.learned.zones[zoneKey].encounters.late_backup_boss ~= nil, "A later character backup should restore after an earlier empty-character login")
+	Harness.assertTrue(addon.db.config.warningLeadTime == 7, "Late backup restore should include player-facing settings")
+	Harness.assertTrue(addon.db.config.overrides.zones[zoneKey].encounters.late_backup_boss.abilities[backupAbilityKey].warning == "raid", "Late backup restore should include ability overrides")
+end
+
+local function scenarioSavedVariablesSchemaResetTombstoneDoesNotBlockLaterBackup()
+	Harness.resetState("Replay SavedVariables Reset Tombstone")
+	local C = addon.Core.Constants
+	local zoneKey = "reset_tombstone_zone"
+	local backupLearned = manualLearnedData(zoneKey, "reset_tombstone_boss", "Reset Tombstone Pulse")
+
+	_G.BossTrackerDB = {
+		schemaVersion = C.SCHEMA_VERSION,
+		config = { overrides = { zones = {} } },
+		learned = { zones = {} },
+		learnedMeta = {
+			backupSchemaVersion = C.LEARNED_BACKUP_SCHEMA_VERSION,
+			dataSchemaVersion = C.SCHEMA_VERSION,
+			dataId = "buggy-reset-data",
+			revision = 0,
+			createdAt = 100,
+			updatedAt = 100,
+			clearedAt = 100,
+		},
+		migrations = {
+			{
+				from = 0,
+				to = C.SCHEMA_VERSION,
+				at = 100,
+				reason = "Reset alpha learned data for phase-aware encounter model schema.",
+			},
+		},
+		debug = {},
+	}
+	_G.BossTrackerCharDB = {
+		learnedBackup = {
+			backupSchemaVersion = C.LEARNED_BACKUP_SCHEMA_VERSION,
+			dataSchemaVersion = C.SCHEMA_VERSION,
+			dataId = "buggy-reset-data",
+			revision = 5,
+			sourceCreatedAt = 100,
+			sourceUpdatedAt = 500,
+			updatedAt = 500,
+			learned = backupLearned,
+			overrides = { zones = {} },
+		},
+	}
+	addon.Core.SavedVariables.init()
+
+	Harness.assertTrue(addon.db.learned.zones[zoneKey].encounters.reset_tombstone_boss ~= nil, "A schema-reset tombstone from the broken recovery build must not block a later character backup")
+end
+
+function manualLearnedData(zoneKey, encounterKey, spellName)
+	local spellKey = addon.Core.Util.timerAbilityKey(nil, spellName)
+	local abilityKey = addon.Core.ModelStore.abilityModelKey(encounterKey, spellKey)
+	return {
+		zones = {
+			[zoneKey] = {
+				key = zoneKey,
+				name = zoneKey,
+				encounters = {
+					[encounterKey] = {
+						key = encounterKey,
+						name = encounterKey,
+						actors = {
+							[encounterKey] = {
+								key = encounterKey,
+								name = encounterKey,
+							},
+						},
+						abilities = {
+							[abilityKey] = {
+								key = abilityKey,
+								actorKey = encounterKey,
+								spellKey = spellKey,
+								spellName = spellName,
+								selectedRule = {
+									type = "time_interval",
+									interval = 20,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}, abilityKey
+end
+
+local function scenarioSavedVariablesNewerCharacterBackupPromptsAndCanKeepAccount()
+	Harness.resetState("Replay Backup Conflict Keep")
+	local C = addon.Core.Constants
+	local zoneKey = "backup_conflict_zone"
+	local accountLearned = manualLearnedData(zoneKey, "account_boss", "Account Pulse")
+	local backupLearned = manualLearnedData(zoneKey, "backup_boss", "Backup Pulse")
+
+	_G.BossTrackerDB = {
+		schemaVersion = C.SCHEMA_VERSION,
+		config = { overrides = { zones = {} } },
+		learned = accountLearned,
+		learnedMeta = {
+			backupSchemaVersion = C.LEARNED_BACKUP_SCHEMA_VERSION,
+			dataSchemaVersion = C.SCHEMA_VERSION,
+			dataId = "shared-data",
+			revision = 1,
+			createdAt = 100,
+			updatedAt = 100,
+		},
+		debug = {},
+	}
+	_G.BossTrackerCharDB = {
+		learnedBackup = {
+			backupSchemaVersion = C.LEARNED_BACKUP_SCHEMA_VERSION,
+			dataSchemaVersion = C.SCHEMA_VERSION,
+			dataId = "shared-data",
+			revision = 2,
+			sourceCreatedAt = 100,
+			sourceUpdatedAt = 200,
+			updatedAt = 200,
+			learned = backupLearned,
+			overrides = { zones = {} },
+		},
+	}
+	addon.Core.SavedVariables.init()
+
+	Harness.assertTrue(addon.Core.SavedVariables.getPendingLearnedBackupConflict() ~= nil, "Newer character backup should create a pending conflict")
+	Harness.assertTrue(addon.db.learned.zones[zoneKey].encounters.account_boss ~= nil, "Account learned data should stay active before the player decides")
+	Harness.assertTrue(addon.db.learned.zones[zoneKey].encounters.backup_boss == nil, "Newer character backup must not overwrite account data automatically")
+
+	local previousDialogs = StaticPopupDialogs
+	local previousShow = StaticPopup_Show
+	local shownKey, shownBackupSummary, shownAccountSummary
+	StaticPopupDialogs = {}
+	StaticPopup_Show = function(key, backupSummary, accountSummary)
+		shownKey = key
+		shownBackupSummary = backupSummary
+		shownAccountSummary = accountSummary
+	end
+	Harness.assertTrue(addon.Core.SavedVariables.showLearnedBackupConflictPrompt() == true, "Newer character backup should show a decision popup")
+	Harness.assertTrue(shownKey == "BOSSTRACKER_LEARNED_BACKUP_CONFLICT", "Decision popup should use the backup conflict dialog")
+	Harness.assertTrue(type(shownBackupSummary) == "string" and type(shownAccountSummary) == "string", "Decision popup should show data summaries")
+	Harness.assertTrue(StaticPopupDialogs.BOSSTRACKER_LEARNED_BACKUP_CONFLICT.button1 == "Restore", "Decision popup should label the restore action clearly")
+	Harness.assertTrue(StaticPopupDialogs.BOSSTRACKER_LEARNED_BACKUP_CONFLICT.button2 == "Discard", "Decision popup should label the discard action clearly")
+	Harness.assertTrue(string.find(StaticPopupDialogs.BOSSTRACKER_LEARNED_BACKUP_CONFLICT.text, "newer BossTracker data than the global data", 1, true) ~= nil, "Decision popup should explain that the character data is newer")
+	StaticPopupDialogs = previousDialogs
+	StaticPopup_Show = previousShow
+
+	Harness.assertTrue(addon.Core.SavedVariables.keepCurrentLearnedData() == true, "Player should be able to keep current account data")
+	Harness.assertTrue(addon.Core.SavedVariables.getPendingLearnedBackupConflict() == nil, "Keeping account data should clear the pending conflict")
+	Harness.assertTrue(addon.charDB.learnedBackup.learned.zones[zoneKey].encounters.account_boss ~= nil, "Keeping account data should replace the character backup")
+	Harness.assertTrue(addon.charDB.learnedBackup.learned.zones[zoneKey].encounters.backup_boss == nil, "Keeping account data should remove the older character backup content")
+end
+
+local function scenarioSavedVariablesNewerCharacterBackupCanRestore()
+	Harness.resetState("Replay Backup Conflict Restore")
+	local C = addon.Core.Constants
+	local zoneKey = "backup_restore_zone"
+	local accountLearned = manualLearnedData(zoneKey, "account_boss", "Account Pulse")
+	local backupLearned, backupAbilityKey = manualLearnedData(zoneKey, "backup_boss", "Backup Pulse")
+
+	_G.BossTrackerDB = {
+		schemaVersion = C.SCHEMA_VERSION,
+		config = { overrides = { zones = {} } },
+		learned = accountLearned,
+		learnedMeta = {
+			backupSchemaVersion = C.LEARNED_BACKUP_SCHEMA_VERSION,
+			dataSchemaVersion = C.SCHEMA_VERSION,
+			dataId = "shared-restore-data",
+			revision = 1,
+			createdAt = 100,
+			updatedAt = 100,
+		},
+		debug = {},
+	}
+	_G.BossTrackerCharDB = {
+		learnedBackup = {
+			backupSchemaVersion = C.LEARNED_BACKUP_SCHEMA_VERSION,
+			dataSchemaVersion = C.SCHEMA_VERSION,
+			dataId = "shared-restore-data",
+			revision = 2,
+			sourceCreatedAt = 100,
+			sourceUpdatedAt = 200,
+			updatedAt = 200,
+			learned = backupLearned,
+			overrides = {
+				zones = {
+					[zoneKey] = {
+						encounters = {
+							backup_boss = {
+								abilities = {
+									[backupAbilityKey] = {
+										warning = "personal",
+										warningSound = "soft_bell",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	addon.Core.SavedVariables.init()
+
+	Harness.assertTrue(addon.Core.SavedVariables.restorePendingLearnedBackup() == true, "Player should be able to restore the newer character backup")
+	Harness.assertTrue(addon.db.learned.zones[zoneKey].encounters.backup_boss ~= nil, "Restoring should replace account data with the character backup")
+	Harness.assertTrue(addon.db.learned.zones[zoneKey].encounters.account_boss == nil, "Restoring should remove the older account model")
+	Harness.assertTrue(addon.db.config.overrides.zones[zoneKey].encounters.backup_boss.abilities[backupAbilityKey].warning == "personal", "Restoring should include warning overrides")
+	Harness.assertTrue(addon.db.migrations[#addon.db.migrations].reason == "Restored newer per-character learned data after player confirmation.", "Restoring should leave a player-confirmed migration breadcrumb")
+end
+
+local function scenarioSavedVariablesExplicitClearBlocksCharacterRestore()
+	Harness.resetState("Replay Backup Clear Tombstone")
+	local C = addon.Core.Constants
+	local zoneKey = "backup_clear_zone"
+	local backupLearned = manualLearnedData(zoneKey, "backup_boss", "Backup Pulse")
+
+	_G.BossTrackerDB = {
+		schemaVersion = C.SCHEMA_VERSION,
+		config = { overrides = { zones = {} } },
+		learned = { zones = {} },
+		learnedMeta = {
+			backupSchemaVersion = C.LEARNED_BACKUP_SCHEMA_VERSION,
+			dataSchemaVersion = C.SCHEMA_VERSION,
+			dataId = "cleared-data",
+			revision = 0,
+			createdAt = 100,
+			updatedAt = 200,
+			clearedAt = 200,
+			clearSource = "manual",
+		},
+		debug = {},
+	}
+	_G.BossTrackerCharDB = {
+		learnedBackup = {
+			backupSchemaVersion = C.LEARNED_BACKUP_SCHEMA_VERSION,
+			dataSchemaVersion = C.SCHEMA_VERSION,
+			dataId = "cleared-data",
+			revision = 3,
+			sourceCreatedAt = 100,
+			sourceUpdatedAt = 300,
+			updatedAt = 300,
+			learned = backupLearned,
+			overrides = { zones = {} },
+		},
+	}
+	addon.Core.SavedVariables.init()
+
+	Harness.assertTrue(next(addon.db.learned.zones) == nil, "Explicitly cleared account data should not restore from an old character backup")
+	Harness.assertTrue(addon.charDB.learnedBackup == nil, "Explicitly cleared account data should remove stale character backup")
+	Harness.assertTrue(addon.Core.SavedVariables.getPendingLearnedBackupConflict() == nil, "Explicitly cleared account data should not ask about old backups")
+end
+
 local function scenarioClearLearnedClearsConfigOverrides()
 	Harness.resetState("Replay Clear Learned")
+	addon.charDB.learnedBackup = {
+		backupSchemaVersion = addon.Core.Constants.LEARNED_BACKUP_SCHEMA_VERSION,
+		dataSchemaVersion = addon.Core.Constants.SCHEMA_VERSION,
+		learned = { zones = { stale = { encounters = {} } } },
+	}
 	addon.Core.Config.setAbilityDisplayMode("zone-a", "boss-a", "spell-a", "show")
 	addon.Core.Config.setAbilityWarningMode("zone-a", "boss-a", "spell-a", "raid")
 	addon.Core.Config.setAbilityWarningSound("zone-a", "boss-a", "spell-a", "soft_bell")
@@ -551,6 +894,7 @@ local function scenarioClearLearnedClearsConfigOverrides()
 	addon.Core.SavedVariables.clearLearnedData("Replay clear learned")
 	Harness.assertTrue(next(addon.db.learned.zones) == nil, "Clear learned should remove learned zones")
 	Harness.assertTrue(next(addon.db.config.overrides.zones) == nil, "Clear learned should also remove stale ability overrides")
+	Harness.assertTrue(addon.charDB.learnedBackup == nil, "Clear learned should remove the character learned-data backup")
 end
 
 local function scenarioWarningRaidPermissionUsesWotlkApi()
@@ -757,6 +1101,106 @@ local function scenarioPrimaryBossUsesDynamicGroupVariantModel()
 	Harness.assertNear(timer.remaining, 11, 0.2, "Persisted first offset should be scheduled from the current boss pull")
 end
 
+local function markEliteBossFrame(context, hpPct)
+	context.unitClassification = "elite"
+	context.sawBossUnit = true
+	context.bossUnitToken = "boss1"
+	context.lastUnitSource = "boss_unit"
+	context.lastUnitToken = "boss1"
+	context.lastHpPct = hpPct or context.lastHpPct
+end
+
+local function scenarioClosedPhaseActorStillGroupsAfterContextEviction()
+	Harness.resetState("Replay Razorgore Eviction")
+	Harness.setInstanceInfo({
+		name = "Blackwing Lair",
+		instanceType = "raid",
+		maxPlayers = 25,
+		mapId = 469,
+		difficultyIndex = 2,
+	})
+
+	local grethok = "Grethok the Controller"
+	local razorgore = "Razorgore the Untamed"
+	local grethokGuid = Harness.makeGuid(grethok, 780)
+	local razorgoreGuid = Harness.makeGuid(razorgore, 781)
+	local pull, grethokContext
+	for index = 0, 3 do
+		pull, grethokContext = Harness.emitSpell({
+			t = index * 4,
+			sourceName = grethok,
+			sourceGUID = grethokGuid,
+			spellName = index % 2 == 0 and "Arcane Missiles" or "Mass Slow",
+			hp = index == 3 and 3 or 70,
+			boss = false,
+		})
+		markEliteBossFrame(grethokContext, index == 3 and 3 or 70)
+	end
+
+	grethokContext.active = false
+	grethokContext.endReason = "unit_died"
+	grethokContext.endedAtSession = 24
+	grethokContext.duration = grethokContext.endedAtSession - grethokContext.startedAtSession
+	Harness.addon.Learning.AbilityLearner.finishBossContext(pull, grethokContext, "unit_died")
+	pull.activeBossContexts[grethokContext.actorKey] = nil
+	pull.bossContexts[grethokContext.actorKey] = nil
+
+	for index = 0, 4 do
+		Harness.emitSpell({
+			t = 30 + index * 14,
+			sourceName = razorgore,
+			sourceGUID = razorgoreGuid,
+			spellName = index % 2 == 0 and "War Stomp" or "Conflagration",
+			hp = 96 - index * 8,
+		})
+	end
+	Harness.finishPull(110, "out_of_combat")
+
+	local groupKey = "group:" .. table.concat({
+		addon.Core.Util.bossKey(grethok, grethokGuid),
+		addon.Core.Util.bossKey(razorgore, razorgoreGuid),
+	}, "+")
+	local group = Harness.encounter(groupKey)
+	Harness.assertTrue(group ~= nil, "Closed phase actors with preserved boss evidence should still group with the active phase boss")
+	Harness.assertTrue(Harness.encounter(addon.Core.Util.bossKey(razorgore, razorgoreGuid)) == nil, "Evicted phase context must not create a second single-boss encounter")
+end
+
+local function scenarioContainedSingleActorEncounterMergesIntoGroup()
+	Harness.resetState("Replay Razorgore Merge")
+	Harness.setInstanceInfo({
+		name = "Blackwing Lair",
+		instanceType = "raid",
+		maxPlayers = 25,
+		mapId = 469,
+		difficultyIndex = 2,
+	})
+
+	local grethok = "Grethok the Controller"
+	local razorgore = "Razorgore the Untamed"
+	local grethokGuid = Harness.makeGuid(grethok, 782)
+	local razorgoreGuid = Harness.makeGuid(razorgore, 783)
+	Harness.emitSpell({ t = 0, sourceName = grethok, sourceGUID = grethokGuid, spellName = "Mass Slow", hp = 100 })
+	Harness.emitSpell({ t = 1, sourceName = razorgore, sourceGUID = razorgoreGuid, spellName = "War Stomp", hp = 100 })
+	Harness.emitSpell({ t = 16, sourceName = razorgore, sourceGUID = razorgoreGuid, spellName = "War Stomp", hp = 92 })
+	Harness.finishPull(35, "out_of_combat")
+
+	local groupKey = "group:" .. table.concat({
+		addon.Core.Util.bossKey(grethok, grethokGuid),
+		addon.Core.Util.bossKey(razorgore, razorgoreGuid),
+	}, "+")
+	Harness.assertTrue(Harness.encounter(groupKey) ~= nil, "Initial Grethok/Razorgore pull should create a group encounter")
+
+	Harness.emitSpell({ t = 100, sourceName = razorgore, sourceGUID = razorgoreGuid, spellName = "War Stomp", hp = 90 })
+	Harness.emitSpell({ t = 116, sourceName = razorgore, sourceGUID = razorgoreGuid, spellName = "War Stomp", hp = 78 })
+	Harness.finishPull(140, "out_of_combat")
+
+	local group = Harness.encounter(groupKey)
+	local single = Harness.encounter(addon.Core.Util.bossKey(razorgore, razorgoreGuid))
+	Harness.assertTrue(group ~= nil, "Group encounter should survive single-actor phase normalization")
+	Harness.assertTrue(single == nil, "Contained single-actor phase model should be merged into the existing group")
+	Harness.assertTrue((group.pullCount or 0) >= 2, "Merged group should retain pull evidence from the single-actor phase")
+end
+
 local function scenarioSingleSampleHpGateNotLiveTime()
 	Harness.resetState("Replay HP Gate")
 	local boss = "Phase Paladin"
@@ -809,6 +1253,35 @@ local function scenarioUnconfirmedEliteTrashNotPromoted()
 
 	local model = Harness.encounter(addon.Core.Util.bossKey(mob, guid))
 	Harness.assertTrue(model == nil, "Long unconfirmed elite trash must not be promoted as a boss")
+end
+
+local function scenarioDisplaylessFallbackEliteTrashSuppressed()
+	Harness.resetState("Replay Low HP Trash")
+	local mob = "Skeletal Frostweaver"
+	local guid = Harness.makeGuid(mob, 681)
+	local spells = { "Frostbolt", "Blizzard", "Chilled", "Fierce Blow", "Claw" }
+	for cycle = 0, 12 do
+		for spellIndex = 1, #spells do
+			local _, context = Harness.emitSpell({
+				t = cycle * 5 + spellIndex * 0.05,
+				sourceName = mob,
+				sourceGUID = guid,
+				spellName = spells[spellIndex],
+				hp = math.max(4, 100 - cycle * 8),
+				boss = false,
+			})
+			context.unitClassification = "elite"
+			context.lastUnitSource = "target"
+			context.lastUnitToken = "target"
+			context.lastHpPct = math.max(4, 100 - cycle * 8)
+		end
+	end
+	Harness.finishPull(70, "out_of_combat")
+
+	local model = Harness.encounter(addon.Core.Util.bossKey(mob, guid))
+	Harness.assertTrue(model ~= nil, "Confirmed low-HP fallback trash may be retained for diagnostics")
+	Harness.assertTrue(model.autoSuppressed == true, "Displayless fallback trash must not remain an active encounter model")
+	Harness.assertTrue(model.suppressionReason == "fallback_context_without_displayable_abilities", "Displayless fallback suppression should explain the learned model state")
 end
 
 local function scenarioRaidEliteTrashRequiresBossSignal()
@@ -1027,15 +1500,24 @@ local scenarios = {
 	scenarioCombatLogHandlerKeepsSpellNames,
 	scenarioHealOnlySpellCanBecomeTimer,
 	scenarioSavedVariablesCleanCombatLogSubeventAbilities,
+	scenarioSavedVariablesRestoreFromCharacterBackup,
+	scenarioSavedVariablesLateCharacterBackupRestoresAfterEmptyCharacterLogin,
+	scenarioSavedVariablesSchemaResetTombstoneDoesNotBlockLaterBackup,
+	scenarioSavedVariablesNewerCharacterBackupPromptsAndCanKeepAccount,
+	scenarioSavedVariablesNewerCharacterBackupCanRestore,
+	scenarioSavedVariablesExplicitClearBlocksCharacterRestore,
 	scenarioClearLearnedClearsConfigOverrides,
 	scenarioWarningRaidPermissionUsesWotlkApi,
 	scenarioConfiguredWarningPlaysSound,
 	scenarioPredictionDeduplicatesSameModelAbility,
 	scenarioGroupKeyDeduplicatesSameModelActors,
 	scenarioPrimaryBossUsesDynamicGroupVariantModel,
+	scenarioClosedPhaseActorStillGroupsAfterContextEviction,
+	scenarioContainedSingleActorEncounterMergesIntoGroup,
 	scenarioSingleSampleHpGateNotLiveTime,
 	scenarioTimedSingleCastDoesNotBecomeHpGateAfterTwoPulls,
 	scenarioUnconfirmedEliteTrashNotPromoted,
+	scenarioDisplaylessFallbackEliteTrashSuppressed,
 	scenarioRaidEliteTrashRequiresBossSignal,
 	scenarioRaidFallbackLearnedModelDoesNotDisplay,
 	scenarioShortHighHpPartialIgnored,

@@ -11,6 +11,7 @@
 - Keep capture broader than durable learning. Persist raw context summaries for diagnosis, but promote only qualified finished boss contexts into timer models so repeated trash and adds do not pollute the learned database.
 - Do not promote non-boss-frame/non-worldboss fallback contexts without death or low-HP confirmation. Long elite trash with many casts is still trash unless there is strong boss evidence.
 - Qualify durable boss models at pull end, not when each source context ends. Sequential boss councils and companion bosses need the complete pull context, while repeated trash models need full-run repetition evidence.
+- Preserve boss identity evidence in the pull learning state when a boss context closes or is evicted from bounded pull maps. Long add-heavy encounters can otherwise lose early phase actors before pull-end grouping.
 - Treat `boss1..MAX_BOSS_FRAMES` as the strongest available unit signal for encounter identity and HP, but keep combat-log, target, and focus fallbacks because Ascension custom encounters may expose late, partial, or no boss frames.
 - Do not use boss HP as a hard gate for learned timer display. Once a context is qualified as a boss, observed timer estimates may be persisted and shown after wipes or resets; HP is only supporting evidence.
 - Allow provisional timer display from the first usable estimate. Keep confidence low and let later observations refine or suppress the timer instead of hiding all early data.
@@ -22,11 +23,13 @@
 - Use `/home/two/projects/azerothcore-wotlk` as a local pattern reference for common boss script shapes, but never as authoritative Ascension behavior.
 - Do not show learned persistent timers for a target/focus-only boss context until the context has actual boss combat evidence through boss events or a matching unit that is affecting combat.
 - In raid instances, do not promote or display fallback elite contexts without a boss-frame, worldboss, or council signal. Raid trash can look boss-like by duration, low HP, and event volume.
+- Auto-suppress fallback elite encounter models that have no boss-frame/worldboss/council identity and no displayable abilities after rule refresh. Retain their diagnostics, but keep them out of active timer model lookup.
 - Suppress repeated abilities with an observed interval below 10 seconds before display. Keep their diagnostic evidence, but treat them as standard repertoire rather than useful timer bars.
 - Track raw activation gaps separately from timer-quality intervals. Gaps below the timer model floor still prove routine spam and must prevent counterspell/lockout gaps from looking like real cooldowns.
 - Suppress pure aura-only repeats at nearly the same HP as likely passive, consequence, or phase-state noise unless later architecture adds a stronger relevance signal.
 - Suppress aura stack state updates where one aura application is followed by many `SPELL_AURA_APPLIED_DOSE` or `SPELL_AURA_REMOVED_DOSE` events and no timer interval. These are state/stack changes, not player-actionable boss timers.
 - For dynamic add encounters, keep group encounter keys unique by boss model key and allow the primary boss to reuse learned group variants that contain the same actor when no exact group or single-actor model exists. Do not use that fallback for non-primary adds.
+- If a single-actor encounter model is contained in an existing group encounter for the same zone, merge it into that group during model normalization. This represents phase shifts, not a separate boss configuration entry.
 - Apply routine suppression before live provisional timer display as well as after pull-end model promotion; otherwise repeated filler casts can appear during the first live boss pull.
 - Use learned routine evidence across confirmed bosses to suppress live provisional timers for shared filler spells. A spell can look long on its first two casts in a new pull and only reveal its short routine cadence later.
 - Do not create a live time timer from only one interval sample when the two activations occur at nearly the same HP. That evidence is more likely HP-gated or phase-gated than a real cooldown.
@@ -38,6 +41,9 @@
 - Timer frame locking must block direct drag, corner resizing, and mouse-wheel scaling, not only hide the frame when idle.
 - `/bt panic` must suppress timer visuals and configured warnings while keeping capture and diagnostics active.
 - Clearing all learned alpha data should also clear related display/warning overrides, because stale overrides can silently affect newly relearned models.
+- Keep a versioned per-character backup of learned encounter data and ability overrides, so an account-wide SavedVariables load failure can restore the player-facing boss configuration on the next addon start.
+- Never let a character backup silently overwrite a non-empty account learned-data store. If the character backup is newer, show an on-screen choice to restore the backup or keep the current account data.
+- Treat schema resets and missing-account-file initialization differently from explicit learned-data clears. Only `/bt clearlearned`-style manual clears may block later character-backup restoration.
 - Treat non-boss summon spells during a single active boss-frame encounter as possible encounter mechanics owned by that boss, while preserving the original add source in learned data and timer display. Skip association when ownership is ambiguous, especially multi-boss pulls.
 - Keep the learning architecture phase-aware: occurrence lifecycle dedupe, encounter grouping, phase segmentation, rule learning, relevance scoring, model persistence, and prediction should remain separate modules.
 - The addon is unreleased; schema changes may reset old alpha learned data when that is cleaner than preserving contaminated models.

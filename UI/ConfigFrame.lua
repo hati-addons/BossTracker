@@ -56,6 +56,12 @@ local function clamp(value, minimum, maximum)
 	return value
 end
 
+local function syncLearnedBackup()
+	if addon.Core.SavedVariables and addon.Core.SavedVariables.syncLearnedBackup then
+		addon.Core.SavedVariables.syncLearnedBackup(true)
+	end
+end
+
 local function createLabel(parent, text, fontObject)
 	local label = parent:CreateFontString(nil, "OVERLAY", fontObject or "GameFontNormalSmall")
 	label:SetText(text or "")
@@ -908,12 +914,14 @@ local function ensureFrame()
 
 	frame.enabledCheck = createCheck(frame.globalPanel, "Addon enabled", function(checked)
 		addon.db.config.enabled = checked
+		syncLearnedBackup()
 		if addon.UI.TimerFrame then addon.UI.TimerFrame.refresh() end
 	end)
 	frame.enabledCheck:SetPoint("TOPLEFT", frame.globalPanel, "TOPLEFT", 12, -10)
 
 	frame.timersCheck = createCheck(frame.globalPanel, "Timer window", function(checked)
 		addon.db.config.timersEnabled = checked
+		syncLearnedBackup()
 		if not checked and addon.UI.TimerFrame then addon.UI.TimerFrame.hide() end
 		if checked and addon.UI.TimerFrame then addon.UI.TimerFrame.refresh() end
 	end)
@@ -921,6 +929,7 @@ local function ensureFrame()
 
 	frame.lockCheck = createCheck(frame.globalPanel, "Lock timer frame", function(checked)
 		addon.db.config.uiLocked = checked
+		syncLearnedBackup()
 		if addon.UI.TimerFrame then addon.UI.TimerFrame.refresh() end
 	end)
 	frame.lockCheck:SetPoint("TOPLEFT", frame.globalPanel, "TOPLEFT", 180, -10)

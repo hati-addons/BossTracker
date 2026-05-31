@@ -149,6 +149,9 @@ function AbilityLearner.finishBossContext(pull, context, reason)
 	if not bossState then
 		return
 	end
+	if addon.Learning.EncounterModel.captureContextEvidence then
+		addon.Learning.EncounterModel.captureContextEvidence(bossState, context)
+	end
 	bossState.endedAtSession = context.endedAtSession or Util.now()
 	bossState.endReason = reason or bossState.endReason
 end

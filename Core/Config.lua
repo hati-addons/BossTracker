@@ -168,6 +168,12 @@ local function refreshRuntime()
 	end
 end
 
+local function syncLearnedBackup()
+	if addon.Core.SavedVariables and addon.Core.SavedVariables.syncLearnedBackup then
+		addon.Core.SavedVariables.syncLearnedBackup(true)
+	end
+end
+
 function Config.getMinTimerDisplayInterval()
 	local config = addon.db and addon.db.config or nil
 	return clampNumber(
@@ -183,6 +189,7 @@ function Config.setMinTimerDisplayInterval(value)
 		return nil
 	end
 	addon.db.config.minTimerDisplayInterval = clampNumber(value, Config.getMinTimerDisplayInterval(), 1, C.MAX_REASONABLE_INTERVAL_SECONDS)
+	syncLearnedBackup()
 	refreshRuntime()
 	return addon.db.config.minTimerDisplayInterval
 end
@@ -197,6 +204,7 @@ function Config.setWarningLeadTime(value)
 		return nil
 	end
 	addon.db.config.warningLeadTime = clampNumber(value, Config.getWarningLeadTime(), 1, 30)
+	syncLearnedBackup()
 	return addon.db.config.warningLeadTime
 end
 
@@ -210,6 +218,7 @@ function Config.setMaxBars(value)
 		return nil
 	end
 	addon.db.config.maxBars = clampNumber(value, Config.getMaxBars(), 1, C.DEFAULT_CONFIG.maxBars or 8)
+	syncLearnedBackup()
 	if addon.UI.TimerFrame and addon.UI.TimerFrame.refresh then
 		addon.UI.TimerFrame.refresh()
 	end
@@ -229,6 +238,7 @@ function Config.setAbilityDisplayMode(zoneKey, encounterKey, abilityKey, mode)
 	end
 	override.display = normalized ~= DISPLAY_AUTO and normalized or nil
 	pruneAbilityOverride(zoneKey, encounterKey, abilityKey)
+	syncLearnedBackup()
 	refreshRuntime()
 	return normalized
 end
@@ -246,6 +256,7 @@ function Config.setAbilityWarningMode(zoneKey, encounterKey, abilityKey, mode)
 	end
 	override.warning = normalized ~= WARNING_OFF and normalized or nil
 	pruneAbilityOverride(zoneKey, encounterKey, abilityKey)
+	syncLearnedBackup()
 	return normalized
 end
 
@@ -262,6 +273,7 @@ function Config.setAbilityWarningSound(zoneKey, encounterKey, abilityKey, soundK
 	end
 	override.warningSound = normalized ~= (C.WARNING_SOUND_OFF or "none") and normalized or nil
 	pruneAbilityOverride(zoneKey, encounterKey, abilityKey)
+	syncLearnedBackup()
 	return normalized
 end
 
@@ -282,6 +294,7 @@ function Config.clearEncounterOverrides(zoneKey, encounterKey)
 	if zone and zone.encounters then
 		zone.encounters[encounterKey] = nil
 		pruneZoneOverride(zoneKey)
+		syncLearnedBackup()
 	end
 end
 
@@ -293,6 +306,7 @@ function Config.clearAbilityOverrides(zoneKey, encounterKey, abilityKey)
 	if encounter and encounter.abilities then
 		encounter.abilities[abilityKey] = nil
 		pruneAbilityOverride(zoneKey, encounterKey, abilityKey)
+		syncLearnedBackup()
 	end
 end
 

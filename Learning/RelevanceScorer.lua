@@ -39,34 +39,109 @@ local function actorDecisionHasStrongBossEvidence(actor)
 		or textContains(reasons, "low_hp_completion")
 end
 
-local function shouldSuppressEncounter(encounter)
-	if type(encounter) ~= "table" or type(encounter.actors) ~= "table" then
+local function actorDecisionHasBossIdentityEvidence(actor)
+	local decision = actor and actor.lastDecision
+	if type(decision) ~= "table" then
 		return false
+	end
+	local reasons = decision.reasons or ""
+	return decision.bossUnitSignal == true
+		or decision.councilSignal == true
+		or textContains(reasons, "worldboss_classification")
+		or textContains(reasons, "boss_unit_frame")
+		or textContains(reasons, "seven_rel_council")
+end
+
+local function encounterActorsAreKnownFallback(encounter)
+	if type(encounter) ~= "table" or type(encounter.actors) ~= "table" then
+		return false, false
 	end
 
 	local actorCount = 0
 	local decisionCount = 0
+	local hasBossIdentity = false
 	for _, actor in pairs(encounter.actors) do
 		actorCount = actorCount + 1
 		if type(actor and actor.lastDecision) == "table" then
 			decisionCount = decisionCount + 1
 		end
+		if actorDecisionHasBossIdentityEvidence(actor) then
+			hasBossIdentity = true
+		end
+	end
+	return actorCount > 0 and decisionCount == actorCount, hasBossIdentity
+end
+
+local function shouldSuppressUnconfirmedEncounter(encounter)
+	local actorsKnown = encounterActorsAreKnownFallback(encounter)
+	if not actorsKnown then
+		return false
+	end
+	for _, actor in pairs(encounter.actors) do
 		if actorDecisionHasStrongBossEvidence(actor) then
 			return false
 		end
 	end
-	return actorCount > 0 and decisionCount == actorCount
+	return true
 end
 
-local function refreshEncounterSuppression(encounter)
-	if shouldSuppressEncounter(encounter) then
+local function abilityHasDisplayRule(zoneKey, encounter, ability)
+	if type(ability) ~= "table" then
+		return false
+	end
+	local config = addon.Core and addon.Core.Config
+	if config
+		and config.isAbilityForcedShown
+		and config.isAbilityForcedShown(zoneKey, encounter and encounter.key, ability.key) then
+		return true
+	end
+	return type(ability.selectedRule) == "table"
+		and ability.selectedRule.type ~= "routine_noise"
+		and ability.hidden ~= true
+		and ability.autoSuppressed ~= true
+end
+
+local function encounterHasDisplayableAbility(zoneKey, encounter)
+	if type(encounter) ~= "table" or type(encounter.abilities) ~= "table" then
+		return false
+	end
+	for _, ability in pairs(encounter.abilities) do
+		if abilityHasDisplayRule(zoneKey, encounter, ability) then
+			return true
+		end
+	end
+	return false
+end
+
+local function shouldSuppressDisplaylessFallbackEncounter(zoneKey, encounter)
+	local actorsKnown, hasBossIdentity = encounterActorsAreKnownFallback(encounter)
+	-- Low-HP elite trash can look boss-like in the classifier. If every learned
+	-- ability is routine noise, keep only diagnostics and keep it out of timers.
+	return actorsKnown
+		and not hasBossIdentity
+		and not encounterHasDisplayableAbility(zoneKey, encounter)
+end
+
+local function refreshUnconfirmedEncounterSuppression(encounter)
+	if shouldSuppressUnconfirmedEncounter(encounter) then
 		encounter.autoSuppressed = true
 		encounter.suppressionReason = "unconfirmed_non_boss_context"
-	else
+	elseif encounter.suppressionReason == "unconfirmed_non_boss_context" then
 		encounter.autoSuppressed = nil
-		if encounter.suppressionReason == "unconfirmed_non_boss_context" then
-			encounter.suppressionReason = nil
-		end
+		encounter.suppressionReason = nil
+	end
+end
+
+local function refreshDisplaylessFallbackEncounterSuppression(zoneKey, encounter)
+	if encounter and encounter.suppressionReason == "unconfirmed_non_boss_context" then
+		return
+	end
+	if shouldSuppressDisplaylessFallbackEncounter(zoneKey, encounter) then
+		encounter.autoSuppressed = true
+		encounter.suppressionReason = "fallback_context_without_displayable_abilities"
+	elseif encounter and encounter.suppressionReason == "fallback_context_without_displayable_abilities" then
+		encounter.autoSuppressed = nil
+		encounter.suppressionReason = nil
 	end
 end
 
@@ -270,7 +345,7 @@ function RelevanceScorer.refreshZone(zone)
 	local spellCounts = {}
 	for _, encounter in pairs(zone.encounters) do
 		if type(encounter) == "table" then
-			refreshEncounterSuppression(encounter)
+			refreshUnconfirmedEncounterSuppression(encounter)
 		end
 		if type(encounter) == "table"
 			and not encounter.suppressed
@@ -296,6 +371,11 @@ function RelevanceScorer.refreshZone(zone)
 					end
 				end
 			end
+		end
+	end
+	for _, encounter in pairs(zone.encounters) do
+		if type(encounter) == "table" then
+			refreshDisplaylessFallbackEncounterSuppression(zone.key, encounter)
 		end
 	end
 	routineSpellIndexDirty = true

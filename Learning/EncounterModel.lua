@@ -86,6 +86,50 @@ local function isBossSignalContext(context)
 	)
 end
 
+local function copyContextEvidence(bossState, context, includeLastHp)
+	if not bossState or type(context) ~= "table" then
+		return
+	end
+	bossState.unitClassification = context.unitClassification or bossState.unitClassification
+	bossState.lastUnitSource = context.lastUnitSource or bossState.lastUnitSource
+	bossState.lastUnitToken = context.lastUnitToken or bossState.lastUnitToken
+	if includeLastHp then
+		bossState.lastHpPct = context.lastHpPct or bossState.lastHpPct
+	end
+	bossState.sawBossUnit = context.sawBossUnit == true or bossState.sawBossUnit
+	bossState.bossUnitToken = context.bossUnitToken or bossState.bossUnitToken
+	bossState.bossUnitSource = context.bossUnitSource or bossState.bossUnitSource
+	bossState.bossUnitSeenAtSession = context.bossUnitSeenAtSession or bossState.bossUnitSeenAtSession
+end
+
+local function scoreContextForBossState(bossState, context)
+	if type(context) == "table" then
+		return context
+	end
+	if type(bossState) ~= "table" then
+		return nil
+	end
+	return {
+		actorKey = bossState.actorKey,
+		modelKey = bossState.bossKey,
+		name = bossState.bossName,
+		startedAtSession = bossState.startedAtSession,
+		endedAtSession = bossState.endedAtSession,
+		duration = bossState.duration,
+		endReason = bossState.endReason,
+		unitClassification = bossState.unitClassification,
+		lastUnitSource = bossState.lastUnitSource,
+		lastUnitToken = bossState.lastUnitToken,
+		lastHpPct = bossState.lastHpPct,
+		sawBossUnit = bossState.sawBossUnit,
+		bossUnitToken = bossState.bossUnitToken,
+		bossUnitSource = bossState.bossUnitSource,
+		bossUnitSeenAtSession = bossState.bossUnitSeenAtSession,
+		eventCount = bossState.eventCount,
+		occurrenceCount = bossState.occurrenceCount,
+	}
+end
+
 local function buildPullDecisionStats(pullState, pull)
 	local stats = {
 		contextCount = 0,
@@ -94,7 +138,7 @@ local function buildPullDecisionStats(pullState, pull)
 
 	for actorKey, bossState in pairs(pullState.bosses or {}) do
 		if bossState.eventCount and bossState.eventCount > 0 then
-			local context = pull and pull.bossContexts and pull.bossContexts[actorKey] or nil
+			local context = scoreContextForBossState(bossState, pull and pull.bossContexts and pull.bossContexts[actorKey] or nil)
 			stats.contextCount = stats.contextCount + 1
 			if isBossSignalContext(context) then
 				stats.worldbossCount = stats.worldbossCount + 1
@@ -272,6 +316,7 @@ function EncounterModel.ensureBossState(pullState, record, pull)
 	bossState.bossName = bossName or bossState.bossName
 	bossState.lastSeenAt = record.t or bossState.lastSeenAt
 	bossState.observedHpPct = record.hpPct or context and context.lastHpPct or bossState.observedHpPct
+	copyContextEvidence(bossState, context, false)
 	return bossState
 end
 
@@ -279,6 +324,7 @@ function EncounterModel.finishBossState(bossState, context, reason)
 	if not bossState or bossState.finished then
 		return
 	end
+	copyContextEvidence(bossState, context, true)
 	bossState.finished = true
 	bossState.endReason = bossState.endReason or context and context.endReason or reason or "unknown"
 	bossState.endedAtSession = bossState.endedAtSession or context and context.endedAtSession or Util.now()
@@ -288,6 +334,10 @@ function EncounterModel.finishBossState(bossState, context, reason)
 	end
 end
 
+function EncounterModel.captureContextEvidence(bossState, context)
+	copyContextEvidence(bossState, context, true)
+end
+
 function EncounterModel.scorePull(pullState, pull, reason)
 	local decisions = {}
 	local qualifiedEntries = {}
@@ -295,7 +345,7 @@ function EncounterModel.scorePull(pullState, pull, reason)
 	local classifier = addon.Learning.EncounterClassifier
 
 	for actorKey, bossState in pairs(pullState.bosses or {}) do
-		local context = pull and pull.bossContexts and pull.bossContexts[actorKey] or nil
+		local context = scoreContextForBossState(bossState, pull and pull.bossContexts and pull.bossContexts[actorKey] or nil)
 		EncounterModel.finishBossState(bossState, context, reason)
 		if bossState.eventCount and bossState.eventCount > 0 and classifier and classifier.scoreContext then
 			local decision = classifier.scoreContext(context, bossState, decisionModelStats(pullState, bossState, pullDecisionStats))

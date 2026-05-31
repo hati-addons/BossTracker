@@ -64,6 +64,12 @@ local function clearLearned()
 	Util.print("learned boss data cleared")
 end
 
+local function syncLearnedBackup()
+	if addon.Core.SavedVariables and addon.Core.SavedVariables.syncLearnedBackup then
+		addon.Core.SavedVariables.syncLearnedBackup(true)
+	end
+end
+
 local function preview(rest)
 	local enabled
 	if rest == "on" then
@@ -124,9 +130,11 @@ local function handle(input)
 		end
 	elseif command == "on" then
 		addon.db.config.enabled = true
+		syncLearnedBackup()
 		Util.print("enabled")
 	elseif command == "off" then
 		addon.db.config.enabled = false
+		syncLearnedBackup()
 		addon.UI.TimerFrame.hide()
 		Util.print("disabled")
 	elseif command == "debug" then
@@ -140,21 +148,25 @@ local function handle(input)
 	elseif command == "timers" then
 		if rest == "off" then
 			addon.db.config.timersEnabled = false
+			syncLearnedBackup()
 			addon.charDB.config.previewTimers = false
 			addon.UI.TimerFrame.hide()
 			Util.print("timers disabled")
 		else
 			addon.db.config.timersEnabled = true
+			syncLearnedBackup()
 			addon.charDB.config.panic = false
 			addon.UI.TimerFrame.refresh()
 			Util.print("timers enabled")
 		end
 	elseif command == "lock" then
 		addon.db.config.uiLocked = true
+		syncLearnedBackup()
 		addon.UI.TimerFrame.refresh()
 		Util.print("timer frame locked")
 	elseif command == "unlock" then
 		addon.db.config.uiLocked = false
+		syncLearnedBackup()
 		addon.UI.TimerFrame.refresh()
 		Util.print("timer frame unlocked")
 	elseif command == "preview" then
@@ -172,6 +184,7 @@ local function handle(input)
 	elseif command == "resume" then
 		addon.charDB.config.panic = false
 		addon.db.config.timersEnabled = true
+		syncLearnedBackup()
 		addon.UI.TimerFrame.refresh()
 		Util.print("timer UI resumed")
 	elseif command == "resetui" then
