@@ -249,7 +249,8 @@ local function collectBosses()
 	local zones = addon.db and addon.db.learned and addon.db.learned.zones or {}
 	for zoneKey, zone in pairs(zones) do
 		for encounterKey, encounter in pairs(zone.encounters or {}) do
-			local label = tostring(zone.name or "Unknown Zone") .. ": " .. tostring(encounter.name or "Unknown Boss")
+			local difficultyText = (GetDifficultyInfo and zone.difficultyIndex and GetDifficultyInfo(zone.difficultyIndex)) or "?"
+			local label = tostring(zone.name or "Unknown Zone") .. string.format("(%s)", tostring(string.sub(difficultyText, 1,1))) .. ": " .. tostring(encounter.name or "Unknown Boss")
 			if containsSearch(label, state.bossSearch) then
 				local shown = 0
 				local total = 0
